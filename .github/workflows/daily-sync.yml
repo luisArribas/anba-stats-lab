@@ -1,0 +1,56 @@
+name: Daily ANBA + NBA Stats Sync (08:00 Madrid)
+
+on:
+  schedule:
+    # Se ejecuta a las 07:00 UTC (08:00 CET en horario de invierno de Madrid)
+    # y a las 06:00 UTC (08:00 CEST en horario de verano de Madrid)
+    - cron: '0 6,7 * * *'
+  workflow_dispatch: # Permite también lanzarlo manualmente con 1 clic desde GitHub si algún día quieres forzarlo
+
+permissions:
+  contents: write
+
+jobs:
+  sync-stats:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/Madrid
+
+    steps:
+      - name: Comprobar si son las 08:00 AM en Madrid
+        id: check_madrid_hour
+        run: |
+          CURRENT_HOUR=$(date +%H)
+          echo "Hora actual en Madrid: $(date)"
+          if [ "$CURRENT_HOUR" = "08" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout repository
+        if: steps.check_madrid_hour.outputs.should_run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        if: steps.check_madrid_hour.outputs.should_run == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        if: steps.check_madrid_hour.outputs.should_run == 'true'
+        run: pip install -r requirements.txt
+
+      - name: Fetch live ANBA (2026-27 & 2025-26) + NBA stats
+        if: steps.check_madrid_hour.outputs.should_run == 'true'
+        run: python scripts/generate_dataset.py
+
+      - name: Commit & Push updated dataset (triggers automatic Vercel redeploy)
+        if: steps.check_madrid_hour.outputs.should_run == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "ANBA Stats Daily Bot"
+          git add src/data/anba_nba_data.json
+          git diff --staged --quiet || (git commit -m "chore(data): daily sync ANBA + NBA stats ($(date +'%Y-%m-%d %H:%M %Z'))" && git push)
