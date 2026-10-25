@@ -50,7 +50,7 @@ export function diagnosePlayer(p: PlayerComparison): PlayerDiagnosis {
   }
   if (dGmSc >= 3.2) {
     return {
-      label: "Sobre-Rendimiento («Cheto ANBA»)",
+      label: "Sobre-Rendimiento en ANBA",
       description: `Rinde muy por encima de la realidad (+${dGmSc.toFixed(1)} GameScore en ANBA). Muy favorecido por el motor/rol.`,
       tone: "emerald",
     };

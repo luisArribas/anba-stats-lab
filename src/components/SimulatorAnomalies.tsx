@@ -197,7 +197,7 @@ export default function SimulatorAnomalies({
               </div>
               <div>
                 <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                  Top «Chetos» en ANBA
+                  Mayor Sobre-Rendimiento en ANBA
                 </h3>
                 <p className="text-[11px] text-zinc-500">
                   Mayor salto positivo de GameScore (ANBA vs NBA)
