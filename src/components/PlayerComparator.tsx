@@ -1,1059 +1,817 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useState, useMemo } from "react";
+import { PlayerComparison } from "@/types/stats";
+import { formatDelta, diagnosePlayer } from "@/lib/formatters";
 import {
-  Radar,
+  ResponsiveContainer,
   RadarChart,
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
-  ResponsiveContainer,
+  Radar,
+  Tooltip,
   BarChart,
   Bar,
   XAxis,
   YAxis,
-  Tooltip,
-  ReferenceLine,
-  Cell,
+  CartesianGrid,
+  Legend,
 } from "recharts";
 import {
   Search,
   Sparkles,
+  ArrowUpRight,
+  ArrowDownRight,
+  Minus,
+  Shield,
   Activity,
-  Target,
-  Crosshair,
-  Users,
-  ChevronRight,
-  Percent,
+  Award,
+  Flame,
+  Calendar,
 } from "lucide-react";
-import { PlayerComparison, TeamComparison } from "@/types/stats";
-import {
-  diagnosePlayer,
-  formatDelta,
-  getDeltaColorClass,
-  getSimilarityBadgeColor,
-} from "@/lib/formatters";
 
-interface PlayerComparatorProps {
+interface Props {
   players: PlayerComparison[];
-  teams: TeamComparison[];
-  selectedPlayerId: string;
-  onSelectPlayer: (id: string) => void;
-  onInspectClones?: (id: string) => void;
-  showExtraModules?: boolean;
+  season: string;
+  selectedPlayerId?: string;
+  onSelectPlayer?: (id: string) => void;
 }
 
 export default function PlayerComparator({
   players,
-  teams,
-  selectedPlayerId,
+  season,
+  selectedPlayerId: controlledPlayerId,
   onSelectPlayer,
-  onInspectClones,
-  showExtraModules = false,
-}: PlayerComparatorProps) {
+}: Props) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [teamFilter, setTeamFilter] = useState<string>("ALL");
-  const [posFilter, setPosFilter] = useState<string>("ALL");
-  const [rateMode, setRateMode] = useState<"perGame" | "per36">("perGame");
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [internalPlayerId, setInternalPlayerId] = useState<string>(
+    players[0]?.id || ""
+  );
+  const [positionFilter, setPositionFilter] = useState<string>("ALL");
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  const activePlayerId = controlledPlayerId || internalPlayerId;
+  const handleSelectPlayer = (id: string) => {
+    setInternalPlayerId(id);
+    if (onSelectPlayer) onSelectPlayer(id);
+  };
 
   const selectedPlayer = useMemo(() => {
     return (
-      players.find((p) => p.id === selectedPlayerId) ||
-      players[0]
+      players.find((p) => p.id === activePlayerId) ||
+      players[0] ||
+      null
     );
-  }, [players, selectedPlayerId]);
+  }, [players, activePlayerId]);
 
   const filteredPlayers = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return players.filter((p) => {
-      if (teamFilter !== "ALL" && p.anbaTeam !== teamFilter) return false;
-      if (posFilter !== "ALL" && p.pos !== posFilter) return false;
-      if (!q) return true;
-      return (
-        p.name.toLowerCase().includes(q) ||
-        p.anbaTeam.toLowerCase().includes(q) ||
-        p.nbaTeam.toLowerCase().includes(q)
-      );
-    });
-  }, [players, searchQuery, teamFilter, posFilter]);
-
-  const spotlightPresets = useMemo(() => {
-    const rot = players.filter((p) => p.anba.mp >= 12 && p.nba.mp >= 12);
-    const pool = rot.length >= 4 ? rot : players;
-    const highestSim = [...pool].sort((a, b) => b.similarityScore - a.similarityScore)[0];
-    const topBoost = [...pool].sort((a, b) => b.deltas.gameScore - a.deltas.gameScore)[0];
-    const topDrop = [...pool].sort((a, b) => a.deltas.gameScore - b.deltas.gameScore)[0];
-    const topScorer = [...pool].sort((a, b) => b.anba.pts - a.anba.pts)[0];
-
-    return [
-      topScorer && { label: `Líder PTS: ${topScorer.name}`, id: topScorer.id, tag: `${topScorer.anba.pts} PTS` },
-      highestSim && { label: `Más Fiel: ${highestSim.name}`, id: highestSim.id, tag: `${highestSim.similarityScore}%` },
-      topBoost && { label: `Salto ANBA: ${topBoost.name}`, id: topBoost.id, tag: `+${topBoost.deltas.gameScore} GmSc` },
-      topDrop && { label: `Salto NBA: ${topDrop.name}`, id: topDrop.id, tag: `${topDrop.deltas.gameScore} GmSc` },
-    ].filter(Boolean) as { label: string; id: string; tag: string }[];
-  }, [players]);
+    return players
+      .filter((p) => {
+        const matchesPos =
+          positionFilter === "ALL" || p.pos.includes(positionFilter);
+        const q = searchQuery.toLowerCase().trim();
+        if (!q) return matchesPos;
+        return (
+          matchesPos &&
+          (p.name.toLowerCase().includes(q) ||
+            p.anbaTeam.toLowerCase().includes(q) ||
+            p.nbaTeam.toLowerCase().includes(q) ||
+            p.anbaTeamName.toLowerCase().includes(q) ||
+            p.nbaTeamName.toLowerCase().includes(q))
+        );
+      })
+      .slice(0, 25);
+  }, [players, searchQuery, positionFilter]);
 
   if (!selectedPlayer) return null;
 
   const diagnosis = diagnosePlayer(selectedPlayer);
+  const topClone = selectedPlayer.clones?.nbaRealClones?.[0];
 
   const radarData = [
     {
-      subject: "Anotación",
+      metric: "Anotación",
       ANBA: selectedPlayer.radar.anba.scoring,
       NBA: selectedPlayer.radar.nba.scoring,
     },
     {
-      subject: "Eficiencia",
-      ANBA: selectedPlayer.radar.anba.efficiency,
-      NBA: selectedPlayer.radar.nba.efficiency,
-    },
-    {
-      subject: "Creación",
+      metric: "Creación",
       ANBA: selectedPlayer.radar.anba.playmaking,
       NBA: selectedPlayer.radar.nba.playmaking,
     },
     {
-      subject: "Rebote",
+      metric: "Rebote",
       ANBA: selectedPlayer.radar.anba.rebounding,
       NBA: selectedPlayer.radar.nba.rebounding,
     },
     {
-      subject: "Defensa",
+      metric: "Defensa",
       ANBA: selectedPlayer.radar.anba.defense,
       NBA: selectedPlayer.radar.nba.defense,
     },
     {
-      subject: "Triple 3P",
+      metric: "Eficiencia",
+      ANBA: selectedPlayer.radar.anba.efficiency,
+      NBA: selectedPlayer.radar.nba.efficiency,
+    },
+    {
+      metric: "Triple",
       ANBA: selectedPlayer.radar.anba.perimeter,
       NBA: selectedPlayer.radar.nba.perimeter,
     },
   ];
 
-  const is36 = rateMode === "per36";
-
-  const deltaChartData = [
+  const shootingSplitsData = [
     {
-      metric: is36 ? "PTS/36" : "PTS",
-      delta: is36 ? selectedPlayer.deltas.pts36 : selectedPlayer.deltas.pts,
-      anba: is36 ? selectedPlayer.anba.pts36 : selectedPlayer.anba.pts,
-      nba: is36 ? selectedPlayer.nba.pts36 : selectedPlayer.nba.pts,
+      name: "TC% (FG%)",
+      ANBA: selectedPlayer.anba.fgPct,
+      NBA: selectedPlayer.nba.fgPct,
     },
     {
-      metric: is36 ? "REB/36" : "REB",
-      delta: is36 ? selectedPlayer.deltas.trb36 : selectedPlayer.deltas.trb,
-      anba: is36 ? selectedPlayer.anba.trb36 : selectedPlayer.anba.trb,
-      nba: is36 ? selectedPlayer.nba.trb36 : selectedPlayer.nba.trb,
+      name: "3P% (Triple)",
+      ANBA: selectedPlayer.anba.fg3Pct,
+      NBA: selectedPlayer.nba.fg3Pct,
     },
     {
-      metric: is36 ? "AST/36" : "AST",
-      delta: is36 ? selectedPlayer.deltas.ast36 : selectedPlayer.deltas.ast,
-      anba: is36 ? selectedPlayer.anba.ast36 : selectedPlayer.anba.ast,
-      nba: is36 ? selectedPlayer.nba.ast36 : selectedPlayer.nba.ast,
+      name: "TL% (FT%)",
+      ANBA: selectedPlayer.anba.ftPct,
+      NBA: selectedPlayer.nba.ftPct,
     },
     {
-      metric: "GmSc",
-      delta: selectedPlayer.deltas.gameScore,
-      anba: selectedPlayer.anba.gameScore,
-      nba: selectedPlayer.nba.gameScore,
-    },
-    {
-      metric: "TS%",
-      delta: selectedPlayer.deltas.tsPct,
-      anba: selectedPlayer.anba.tsPct,
-      nba: selectedPlayer.nba.tsPct,
-    },
-    {
-      metric: "3P%",
-      delta: selectedPlayer.deltas.fg3Pct,
-      anba: selectedPlayer.anba.fg3Pct,
-      nba: selectedPlayer.nba.fg3Pct,
-    },
-    {
-      metric: "3PAr%",
-      delta: selectedPlayer.deltas.fg3aRate,
-      anba: selectedPlayer.anba.fg3aRate,
-      nba: selectedPlayer.nba.fg3aRate,
+      name: "TS% (Real)",
+      ANBA: selectedPlayer.anba.tsPct,
+      NBA: selectedPlayer.nba.tsPct,
     },
   ];
 
   const statRows: {
-    category: string;
-    items: {
-      label: string;
-      shortLabel?: string;
-      anba: number;
-      nba: number;
-      decimals: number;
-      max: number;
-      suffix?: string;
-      invertColor?: boolean;
-    }[];
+    label: string;
+    shortLabel: string;
+    anba: number;
+    nba: number;
+    max: number;
+    suffix?: string;
+    invertColor?: boolean;
   }[] = [
     {
-      category: "Impacto & Uso",
-      items: [
-        { label: "Partidos Jugados (PJ)", shortLabel: "Partidos (PJ)", anba: selectedPlayer.anba.g, nba: selectedPlayer.nba.g, decimals: 0, max: 82 },
-        { label: "Minutos por Partido (MIN)", shortLabel: "Minutos (MIN)", anba: selectedPlayer.anba.mp, nba: selectedPlayer.nba.mp, decimals: 1, max: 40 },
-        { label: "GameScore (Hollinger)", shortLabel: "GameScore", anba: selectedPlayer.anba.gameScore, nba: selectedPlayer.nba.gameScore, decimals: 2, max: 32 },
-        { label: "True Shooting (TS%)", shortLabel: "True Shooting (TS%)", anba: selectedPlayer.anba.tsPct, nba: selectedPlayer.nba.tsPct, decimals: 1, suffix: "%", max: 75 },
-        { label: "Effective FG% (eFG%)", shortLabel: "Effective FG% (eFG%)", anba: selectedPlayer.anba.efgPct, nba: selectedPlayer.nba.efgPct, decimals: 1, suffix: "%", max: 75 },
-      ],
+      label: "Puntos por Partido (PTS)",
+      shortLabel: "PTS",
+      anba: selectedPlayer.anba.pts,
+      nba: selectedPlayer.nba.pts,
+      max: 38,
     },
     {
-      category: is36 ? "Producción Por 36 Minutos" : "Producción Por Partido",
-      items: [
-        {
-          label: is36 ? "Puntos / 36m" : "Puntos (PTS)",
-          anba: is36 ? selectedPlayer.anba.pts36 : selectedPlayer.anba.pts,
-          nba: is36 ? selectedPlayer.nba.pts36 : selectedPlayer.nba.pts,
-          decimals: 2,
-          max: 38,
-        },
-        {
-          label: is36 ? "Rebotes Totales / 36m" : "Rebotes Totales (REB)",
-          shortLabel: is36 ? "Rebotes / 36m" : "Rebotes (REB)",
-          anba: is36 ? selectedPlayer.anba.trb36 : selectedPlayer.anba.trb,
-          nba: is36 ? selectedPlayer.nba.trb36 : selectedPlayer.nba.trb,
-          decimals: 2,
-          max: 16,
-        },
-        {
-          label: "Rebotes Ofensivos (ORB)",
-          shortLabel: "Reb. Ofensivos (ORB)",
-          anba: selectedPlayer.anba.orb,
-          nba: selectedPlayer.nba.orb,
-          decimals: 2,
-          max: 5,
-        },
-        {
-          label: "Rebotes Defensivos (DRB)",
-          shortLabel: "Reb. Defensivos (DRB)",
-          anba: selectedPlayer.anba.drb,
-          nba: selectedPlayer.nba.drb,
-          decimals: 2,
-          max: 12,
-        },
-        {
-          label: is36 ? "Asistencias / 36m" : "Asistencias (AST)",
-          anba: is36 ? selectedPlayer.anba.ast36 : selectedPlayer.anba.ast,
-          nba: is36 ? selectedPlayer.nba.ast36 : selectedPlayer.nba.ast,
-          decimals: 2,
-          max: 12,
-        },
-        {
-          label: is36 ? "Robos / 36m" : "Robos (STL)",
-          anba: is36 ? selectedPlayer.anba.stl36 : selectedPlayer.anba.stl,
-          nba: is36 ? selectedPlayer.nba.stl36 : selectedPlayer.nba.stl,
-          decimals: 2,
-          max: 3.5,
-        },
-        {
-          label: is36 ? "Tapones / 36m" : "Tapones (BLK)",
-          anba: is36 ? selectedPlayer.anba.blk36 : selectedPlayer.anba.blk,
-          nba: is36 ? selectedPlayer.nba.blk36 : selectedPlayer.nba.blk,
-          decimals: 2,
-          max: 3.5,
-        },
-        {
-          label: is36 ? "Pérdidas / 36m" : "Pérdidas (TOV)",
-          anba: is36 ? selectedPlayer.anba.tov36 : selectedPlayer.anba.tov,
-          nba: is36 ? selectedPlayer.nba.tov36 : selectedPlayer.nba.tov,
-          decimals: 2,
-          max: 5,
-          invertColor: true,
-        },
-      ],
+      label: "Rebotes por Partido (REB)",
+      shortLabel: "REB",
+      anba: selectedPlayer.anba.trb,
+      nba: selectedPlayer.nba.trb,
+      max: 16,
     },
     {
-      category: "Volumen y Precisión de Tiro",
-      items: [
-        { label: "Tiros de Campo Anotados (FGM)", shortLabel: "Tiros Anotados (FGM)", anba: selectedPlayer.anba.fg, nba: selectedPlayer.nba.fg, decimals: 2, max: 14 },
-        { label: "Tiros de Campo Intentados (FGA)", shortLabel: "Tiros Intentados (FGA)", anba: selectedPlayer.anba.fga, nba: selectedPlayer.nba.fga, decimals: 2, max: 25 },
-        { label: "Porcentaje Tiro de Campo (FG%)", shortLabel: "Acierto Tiro (FG%)", anba: selectedPlayer.anba.fgPct, nba: selectedPlayer.nba.fgPct, decimals: 1, suffix: "%", max: 75 },
-        { label: "Triples Anotados (3PM)", shortLabel: "Triples Anot. (3PM)", anba: selectedPlayer.anba.fg3, nba: selectedPlayer.nba.fg3, decimals: 2, max: 6 },
-        { label: "Triples Intentados (3PA)", shortLabel: "Triples Int. (3PA)", anba: selectedPlayer.anba.fg3a, nba: selectedPlayer.nba.fg3a, decimals: 2, max: 13 },
-        { label: "Porcentaje Triples (3P%)", shortLabel: "Acierto Triple (3P%)", anba: selectedPlayer.anba.fg3Pct, nba: selectedPlayer.nba.fg3Pct, decimals: 1, suffix: "%", max: 60 },
-        { label: "Tiros Libres Intentados (FTA)", shortLabel: "Tiros Libres Int. (FTA)", anba: selectedPlayer.anba.fta, nba: selectedPlayer.nba.fta, decimals: 2, max: 12 },
-        { label: "Porcentaje Tiros Libres (FT%)", shortLabel: "Acierto Libres (FT%)", anba: selectedPlayer.anba.ftPct, nba: selectedPlayer.nba.ftPct, decimals: 1, suffix: "%", max: 100 },
-      ],
+      label: "Asistencias por Partido (AST)",
+      shortLabel: "AST",
+      anba: selectedPlayer.anba.ast,
+      nba: selectedPlayer.nba.ast,
+      max: 13,
+    },
+    {
+      label: "Robos por Partido (STL)",
+      shortLabel: "STL",
+      anba: selectedPlayer.anba.stl,
+      nba: selectedPlayer.nba.stl,
+      max: 3.0,
+    },
+    {
+      label: "Tapones por Partido (BLK)",
+      shortLabel: "BLK",
+      anba: selectedPlayer.anba.blk,
+      nba: selectedPlayer.nba.blk,
+      max: 3.8,
+    },
+    {
+      label: "Triples Anotados (3PM)",
+      shortLabel: "3PM",
+      anba: selectedPlayer.anba.fg3,
+      nba: selectedPlayer.nba.fg3,
+      max: 5.5,
+    },
+    {
+      label: "Minutos por Partido (MIN)",
+      shortLabel: "MIN",
+      anba: selectedPlayer.anba.mp,
+      nba: selectedPlayer.nba.mp,
+      max: 40,
+    },
+    {
+      label: "Pérdidas por Partido (TOV)",
+      shortLabel: "TOV",
+      anba: selectedPlayer.anba.tov,
+      nba: selectedPlayer.nba.tov,
+      max: 5.5,
+      invertColor: true,
+    },
+    {
+      label: "True Shooting (TS%)",
+      shortLabel: "TS%",
+      anba: selectedPlayer.anba.tsPct,
+      nba: selectedPlayer.nba.tsPct,
+      max: 75,
+      suffix: "%",
     },
   ];
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Control & Search Bar — Mobile Friendly */}
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/60 p-3.5 sm:p-4 shadow-sm backdrop-blur-md">
-        <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
-          {/* Player Search & Selector (text-base on mobile prevents iOS Safari zoom!) */}
-          <div className="relative flex-1 max-w-xl">
+      {/* Top Search & Quick Selector Bar */}
+      <div className="bg-[#161a23] border border-[#262c3b] rounded-xl p-3 sm:p-4">
+        <div className="flex flex-col md:flex-row gap-2.5 sm:gap-3 items-stretch md:items-center justify-between">
+          {/* Search Input Dropdown */}
+          <div className="relative flex-1">
             <div className="relative">
-              <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="w-4 h-4 text-[#8b9099] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
-                onFocus={() => setDropdownOpen(true)}
+                onFocus={() => setShowDropdown(true)}
+                onBlur={() => setTimeout(() => setShowDropdown(false), 180)}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
-                  setDropdownOpen(true);
+                  setShowDropdown(true);
                 }}
-                placeholder={`Buscar entre ${players.length} jugadores (ej. Booker, Edwards, Maxey...)`}
-                className="w-full pl-10 pr-14 py-2.5 text-base sm:text-sm rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/80 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/60 transition"
+                placeholder={`Buscar jugador o equipo en ${season} (${players.length} jugadores)...`}
+                className="w-full bg-[#0f1219] border border-[#262c3b] focus:border-[#4d84e2] rounded-lg pl-10 pr-8 py-2.5 text-base sm:text-sm text-[#eceef2] placeholder:text-[#8b9099] focus:outline-none transition-colors"
               />
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#8b9099] hover:text-[#eceef2] p-1"
                 >
-                  Borrar
+                  ✕
                 </button>
               )}
             </div>
 
-            {dropdownOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-20"
-                  onClick={() => setDropdownOpen(false)}
-                />
-                <div className="absolute left-0 right-0 mt-1.5 max-h-72 sm:max-h-80 overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-2xl z-30 divide-y divide-zinc-100 dark:divide-zinc-900">
-                  {filteredPlayers.length === 0 ? (
-                    <div className="p-4 text-sm text-zinc-500 text-center">
-                      No se encontraron jugadores con ese filtro.
-                    </div>
-                  ) : (
-                    filteredPlayers.slice(0, 45).map((p) => {
-                      const active = p.id === selectedPlayer.id;
-                      return (
-                        <button
-                          key={p.id}
-                          onClick={() => {
-                            onSelectPlayer(p.id);
-                            setDropdownOpen(false);
-                            setSearchQuery("");
-                          }}
-                          className={`w-full px-3.5 py-2.5 text-left flex items-center justify-between gap-2 hover:bg-zinc-50 dark:hover:bg-zinc-900/90 transition ${
-                            active ? "bg-emerald-500/10" : ""
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            {p.avatarUrl ? (
-                              <img
-                                src={p.avatarUrl}
-                                alt={p.name}
-                                className="w-8 h-8 rounded-full object-cover bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 shrink-0"
-                              />
-                            ) : (
-                              <span className="font-mono text-xs font-semibold px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 shrink-0">
-                                {p.anbaTeam}
-                              </span>
-                            )}
-                            <div className="min-w-0">
-                              <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5 truncate">
-                                <span className="truncate">{p.name}</span>
-                                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 shrink-0">
-                                  {p.anbaTeam}
-                                </span>
-                              </div>
-                              <div className="text-[11px] text-zinc-500 truncate">
-                                {p.pos} · NBA: {p.nbaTeam} · {p.anba.pts} PTS (A) vs {p.nba.pts} (N)
-                              </div>
-                            </div>
-                          </div>
-                          <span
-                            className={`font-mono text-[11px] px-2 py-0.5 rounded border shrink-0 ${getSimilarityBadgeColor(
-                              p.similarityScore
-                            )}`}
-                          >
-                            {p.similarityScore.toFixed(0)}%
-                          </span>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Filters & Rate Mode — Responsive 2-column grid on mobile */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-            <div className="grid grid-cols-2 sm:flex items-center gap-2">
-              <select
-                value={teamFilter}
-                onChange={(e) => {
-                  setTeamFilter(e.target.value);
-                  setDropdownOpen(true);
-                }}
-                aria-label="Filtrar por franquicia ANBA"
-                className="w-full sm:w-auto text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 px-2.5 py-2 text-zinc-700 dark:text-zinc-300 focus:outline-none truncate"
-              >
-                <option value="ALL">Equipo ANBA (Todos)</option>
-                {teams
-                  .slice()
-                  .sort((a, b) => a.abbr.localeCompare(b.abbr))
-                  .map((t) => (
-                    <option key={t.abbr} value={t.abbr}>
-                      {t.abbr} — {t.name}
-                    </option>
-                  ))}
-              </select>
-
-              <select
-                value={posFilter}
-                onChange={(e) => {
-                  setPosFilter(e.target.value);
-                  setDropdownOpen(true);
-                }}
-                aria-label="Filtrar por posición"
-                className="w-full sm:w-auto text-xs rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 px-2.5 py-2 text-zinc-700 dark:text-zinc-300 focus:outline-none truncate"
-              >
-                <option value="ALL">Posición (Todas)</option>
-                <option value="PG">PG — Base</option>
-                <option value="SG">SG — Escolta</option>
-                <option value="SF">SF — Alero</option>
-                <option value="PF">PF — Ala-Pívot</option>
-                <option value="C">C — Pívot</option>
-              </select>
-            </div>
-
-            {/* Per Game vs Per 36 toggle */}
-            <div className="grid grid-cols-2 sm:inline-flex rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-950 p-0.5">
-              <button
-                onClick={() => setRateMode("perGame")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition text-center ${
-                  rateMode === "perGame"
-                    ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"
-                }`}
-              >
-                Por Partido
-              </button>
-              <button
-                onClick={() => setRateMode("per36")}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition text-center ${
-                  rateMode === "per36"
-                    ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"
-                }`}
-              >
-                Por 36 Min
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Spotlight Quick Chips — Horizontal scroll on mobile */}
-        <div className="mt-3 pt-2.5 border-t border-zinc-100 dark:border-zinc-800/60 flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 sm:flex-wrap">
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-zinc-400 flex items-center gap-1 shrink-0">
-            <Sparkles className="w-3 h-3 text-emerald-500" /> Destacados:
-          </span>
-          {spotlightPresets.map((chip) => (
-            <button
-              key={chip.id + chip.label}
-              onClick={() => onSelectPlayer(chip.id)}
-              className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition shrink-0 ${
-                selectedPlayer.id === chip.id
-                  ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 font-medium"
-                  : "border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-900/60 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300 dark:hover:border-zinc-700"
-              }`}
-            >
-              <span>{chip.label}</span>
-              <span className="font-mono text-[10px] opacity-75">({chip.tag})</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Player Hero Card — Mobile-Adapted */}
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/60 p-4 sm:p-6 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 sm:gap-6">
-          <div className="flex items-center sm:items-start gap-3.5 sm:gap-4">
-            {selectedPlayer.avatarUrl && (
-              <div className="relative shrink-0">
-                <img
-                  src={selectedPlayer.avatarUrl}
-                  alt={selectedPlayer.name}
-                  className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 shadow-md"
-                />
+            {/* Dropdown Results */}
+            {showDropdown && (
+              <div className="absolute z-40 left-0 right-0 mt-1.5 bg-[#161a23] border border-[#262c3b] rounded-xl shadow-2xl max-h-72 sm:max-h-80 overflow-y-auto divide-y divide-[#262c3b]/60">
+                {filteredPlayers.length === 0 ? (
+                  <div className="p-4 text-sm text-[#8b9099] text-center">
+                    No se encontraron jugadores con ese criterio.
+                  </div>
+                ) : (
+                  filteredPlayers.map((p) => (
+                    <button
+                      key={p.id}
+                      onMouseDown={() => {
+                        handleSelectPlayer(p.id);
+                        setSearchQuery("");
+                        setShowDropdown(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3.5 sm:px-4 py-2.5 text-left hover:bg-[#4d84e2]/10 transition-colors ${
+                        p.id === selectedPlayer.id ? "bg-[#16233a]" : ""
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#0f1219] text-[#8b9099] border border-[#262c3b] shrink-0">
+                          {p.pos}
+                        </span>
+                        <div className="truncate">
+                          <p className="text-sm font-semibold text-[#eceef2] truncate">
+                            {p.name}
+                          </p>
+                          <p className="text-[11px] text-[#8b9099] truncate">
+                            ANBA:{" "}
+                            <span className="text-[#4d84e2] font-medium">
+                              {p.anbaTeamName}
+                            </span>{" "}
+                            · NBA:{" "}
+                            <span className="text-[#c9a84c] font-medium">
+                              {p.nbaTeam}
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right font-mono text-xs shrink-0 ml-2">
+                        <span className="text-[#4d84e2] font-bold">
+                          {p.anba.pts.toFixed(1)}
+                        </span>
+                        <span className="text-[#8b9099] mx-1">vs</span>
+                        <span className="text-[#c9a84c] font-bold">
+                          {p.nba.pts.toFixed(1)}
+                        </span>
+                        <span className="text-[10px] text-[#8b9099] block">
+                          PTS
+                        </span>
+                      </div>
+                    </button>
+                  ))
+                )}
               </div>
             )}
-
-            <div className="space-y-1.5 sm:space-y-2 min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md text-[11px] sm:text-xs font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                  ANBA: {selectedPlayer.anbaTeam} ({selectedPlayer.anba.g} PJ)
-                </span>
-                <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md text-[11px] sm:text-xs font-mono font-bold bg-orange-500/15 text-orange-600 dark:text-orange-400 border border-orange-500/30">
-                  NBA: {selectedPlayer.nbaTeam} ({selectedPlayer.nba.g} PJ)
-                </span>
-                <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md text-[11px] sm:text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
-                  {selectedPlayer.posEs} · {selectedPlayer.age}a
-                </span>
-              </div>
-
-              <h2 className="text-xl sm:text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 truncate">
-                {selectedPlayer.name}
-              </h2>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <span
-                  className={`px-2 py-0.5 rounded-md text-[11px] font-medium border ${
-                    diagnosis.tone === "emerald"
-                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
-                      : diagnosis.tone === "orange"
-                      ? "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/30"
-                      : "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30"
-                  }`}
-                >
-                  {diagnosis.label}
-                </span>
-              </div>
-            </div>
           </div>
 
-          <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 lg:hidden -mt-2">
-            {diagnosis.description}
-          </p>
-
-          {/* Key Summary KPIs — Clean 2x2 grid on mobile, 4 cols on tablet/desktop */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 lg:min-w-[520px]">
-            <div className="rounded-lg border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/60 p-2.5 sm:p-3">
-              <div className="text-[10px] sm:text-[11px] uppercase tracking-wider text-zinc-400 font-medium">
-                Índice Fidelidad
-              </div>
-              <div className="mt-1 flex items-baseline gap-1.5">
-                <span className="font-mono text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-                  {selectedPlayer.similarityScore.toFixed(1)}%
-                </span>
-              </div>
-              <div className="mt-1 text-[10px] sm:text-[11px] text-zinc-500 truncate">
-                Similitud ANBA-NBA
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/60 p-2.5 sm:p-3">
-              <div className="text-[10px] sm:text-[11px] uppercase tracking-wider text-zinc-400 font-medium">
-                GameScore
-              </div>
-              <div className="mt-1 flex items-baseline gap-1.5 sm:gap-2">
-                <span className="font-mono text-lg sm:text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                  {selectedPlayer.anba.gameScore.toFixed(1)}
-                </span>
-                <span className="text-[11px] text-zinc-400">vs</span>
-                <span className="font-mono text-xs sm:text-sm font-semibold text-orange-500">
-                  {selectedPlayer.nba.gameScore.toFixed(1)}
-                </span>
-              </div>
-              <div className="mt-1">
-                <span
-                  className={`inline-block font-mono text-[10px] sm:text-[11px] px-1.5 py-0.5 rounded border ${getDeltaColorClass(
-                    selectedPlayer.deltas.gameScore
-                  )}`}
-                >
-                  {formatDelta(selectedPlayer.deltas.gameScore, 2)} ANBA
-                </span>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/60 p-2.5 sm:p-3">
-              <div className="text-[10px] sm:text-[11px] uppercase tracking-wider text-zinc-400 font-medium">
-                {is36 ? "Puntos / 36m" : "Puntos / Part."}
-              </div>
-              <div className="mt-1 flex items-baseline gap-1.5 sm:gap-2">
-                <span className="font-mono text-lg sm:text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                  {(is36 ? selectedPlayer.anba.pts36 : selectedPlayer.anba.pts).toFixed(1)}
-                </span>
-                <span className="text-[11px] text-zinc-400">vs</span>
-                <span className="font-mono text-xs sm:text-sm font-semibold text-orange-500">
-                  {(is36 ? selectedPlayer.nba.pts36 : selectedPlayer.nba.pts).toFixed(1)}
-                </span>
-              </div>
-              <div className="mt-1">
-                <span
-                  className={`inline-block font-mono text-[10px] sm:text-[11px] px-1.5 py-0.5 rounded border ${getDeltaColorClass(
-                    is36 ? selectedPlayer.deltas.pts36 : selectedPlayer.deltas.pts
-                  )}`}
-                >
-                  {formatDelta(is36 ? selectedPlayer.deltas.pts36 : selectedPlayer.deltas.pts, 1)} PTS
-                </span>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/60 p-2.5 sm:p-3">
-              <div className="text-[10px] sm:text-[11px] uppercase tracking-wider text-zinc-400 font-medium">
-                Eficiencia TS%
-              </div>
-              <div className="mt-1 flex items-baseline gap-1.5 sm:gap-2">
-                <span className="font-mono text-lg sm:text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                  {selectedPlayer.anba.tsPct.toFixed(1)}%
-                </span>
-                <span className="text-[11px] text-zinc-400">vs</span>
-                <span className="font-mono text-xs sm:text-sm font-semibold text-orange-500">
-                  {selectedPlayer.nba.tsPct.toFixed(1)}%
-                </span>
-              </div>
-              <div className="mt-1">
-                <span
-                  className={`inline-block font-mono text-[10px] sm:text-[11px] px-1.5 py-0.5 rounded border ${getDeltaColorClass(
-                    selectedPlayer.deltas.tsPct
-                  )}`}
-                >
-                  {formatDelta(selectedPlayer.deltas.tsPct, 1, "%")}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Charts Row: Radar Percentile Footprint + Diverging Delta Bar Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
-        {/* Radar Footprint */}
-        <div className="lg:col-span-5 rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/60 p-4 sm:p-5 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-xs sm:text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <Target className="w-4 h-4 text-emerald-500 shrink-0" />
-                <span>Huella de Percentiles (0–100)</span>
-              </h3>
-              <div className="flex items-center gap-2.5 text-[11px] sm:text-xs shrink-0">
-                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-                  ANBA
-                </span>
-                <span className="flex items-center gap-1 text-orange-600 dark:text-orange-400 font-medium">
-                  <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" />
-                  NBA
-                </span>
-              </div>
-            </div>
-            <p className="text-[11px] sm:text-xs text-zinc-500 mt-1">
-              Percentil de {selectedPlayer.name} frente a la liga en 6 dimensiones.
-            </p>
-          </div>
-
-          <div className="h-64 sm:h-72 w-full mt-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-                <PolarGrid stroke="#52525b" strokeOpacity={0.35} />
-                <PolarAngleAxis
-                  dataKey="subject"
-                  tick={{ fill: "#a1a1aa", fontSize: 11, fontWeight: 500 }}
-                />
-                <PolarRadiusAxis
-                  angle={30}
-                  domain={[0, 100]}
-                  tick={{ fill: "#71717a", fontSize: 9 }}
-                  axisLine={false}
-                />
-                <Radar
-                  name="NBA Real"
-                  dataKey="NBA"
-                  stroke="#f97316"
-                  strokeWidth={2}
-                  fill="#f97316"
-                  fillOpacity={0.2}
-                />
-                <Radar
-                  name="ANBA"
-                  dataKey="ANBA"
-                  stroke="#10b981"
-                  strokeWidth={2.5}
-                  fill="#10b981"
-                  fillOpacity={0.32}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#09090b",
-                    borderColor: "#27272a",
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                    color: "#f4f4f5",
-                  }}
-                  formatter={(value: number) => [`Percentil ${value.toFixed(0)}`, ""]}
-                />
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 pt-3 border-t border-zinc-100 dark:border-zinc-800/60 text-center">
-            {radarData.slice(0, 3).map((d) => (
-              <div key={d.subject} className="text-xs">
-                <div className="text-zinc-400 text-[10px] sm:text-[11px] truncate">{d.subject}</div>
-                <div className="font-mono font-semibold mt-0.5 text-[11px] sm:text-xs">
-                  <span className="text-emerald-500">P{d.ANBA.toFixed(0)}</span>
-                  <span className="text-zinc-500 mx-1">/</span>
-                  <span className="text-orange-500">P{d.NBA.toFixed(0)}</span>
-                </div>
-              </div>
+          {/* Position Filter Pills */}
+          <div className="flex items-center gap-1 bg-[#0f1219] p-1 rounded-lg border border-[#262c3b] overflow-x-auto no-scrollbar">
+            {["ALL", "PG", "SG", "SF", "PF", "C"].map((pos) => (
+              <button
+                key={pos}
+                onClick={() => setPositionFilter(pos)}
+                className={`flex-1 sm:flex-none px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  positionFilter === pos
+                    ? "bg-[#4d84e2] text-white"
+                    : "text-[#8b9099] hover:text-[#eceef2]"
+                }`}
+              >
+                {pos === "ALL" ? "Todos" : pos}
+              </button>
             ))}
           </div>
         </div>
 
-        {/* Diverging Delta Chart + Shot Diet / Splits */}
-        <div className="lg:col-span-7 flex flex-col gap-4 sm:gap-6">
-          {/* Diverging Delta Bar Chart */}
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/60 p-4 sm:p-5 shadow-sm flex-1">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-              <div>
-                <h3 className="text-xs sm:text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-emerald-500 shrink-0" />
-                  Desviación Neta (ANBA menos NBA Real)
-                </h3>
-                <p className="text-[11px] sm:text-xs text-zinc-500 mt-0.5">
-                  Verde = produce más en ANBA · Naranja = produce menos en ANBA.
-                </p>
-              </div>
-              <span className="text-[10px] sm:text-[11px] font-mono text-zinc-400">
-                Base 0 = Realidad NBA
+        {/* Quick Star Chips (Horizontally scrollable on mobile) */}
+        <div className="flex items-center gap-1.5 sm:gap-2 mt-3 pt-2.5 border-t border-[#262c3b]/70 overflow-x-auto no-scrollbar pb-0.5">
+          <span className="text-[10px] uppercase tracking-wider text-[#8b9099] font-semibold shrink-0 mr-0.5">
+            Destacados {season}:
+          </span>
+          {players.slice(0, 12).map((p) => {
+            const active = p.id === selectedPlayer.id;
+            return (
+              <button
+                key={p.id}
+                onClick={() => handleSelectPlayer(p.id)}
+                className={`text-xs px-2.5 py-1 rounded-md font-medium transition-colors shrink-0 border ${
+                  active
+                    ? "bg-[#16233a] border-[#4d84e2]/50 text-[#eceef2]"
+                    : "bg-[#0f1219] border-[#262c3b] text-[#8b9099] hover:text-[#eceef2] hover:border-[#8b9099]/40"
+                }`}
+              >
+                {p.name}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Player Hero Banner & Summary KPIs */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4">
+        {/* Player Identity Card */}
+        <div className="lg:col-span-5 bg-[#161a23] border border-[#262c3b] rounded-xl p-4 sm:p-5 flex flex-col justify-between relative overflow-hidden">
+          <div className="relative z-10">
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-[#16233a] text-[#7ab3ff] border border-[#4d84e2]/30">
+                {selectedPlayer.pos} · {selectedPlayer.posEs}
+              </span>
+              {selectedPlayer.age > 0 && (
+                <span className="text-xs text-[#8b9099]">
+                  {selectedPlayer.age} años
+                </span>
+              )}
+              <span className="ml-auto text-[11px] font-mono text-[#8b9099] flex items-center gap-1">
+                <Calendar className="w-3 h-3 text-[#4d84e2]" />
+                {season}
               </span>
             </div>
 
-            <div className="h-48 sm:h-52 w-full mt-3 sm:mt-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={deltaChartData}
-                  margin={{ top: 10, right: 8, left: -20, bottom: 0 }}
-                >
-                  <XAxis
-                    dataKey="metric"
-                    tick={{ fill: "#a1a1aa", fontSize: 10, fontFamily: "monospace" }}
-                    axisLine={{ stroke: "#3f3f46" }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fill: "#71717a", fontSize: 10, fontFamily: "monospace" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    cursor={{ fill: "rgba(113, 113, 122, 0.1)" }}
-                    content={({ active, payload }) => {
-                      if (!active || !payload || !payload.length) return null;
-                      const item = payload[0].payload;
-                      return (
-                        <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-100 shadow-xl">
-                          <div className="font-bold mb-1">{item.metric}</div>
-                          <div className="flex justify-between gap-4 font-mono">
-                            <span className="text-emerald-400">ANBA: {item.anba}</span>
-                            <span className="text-orange-400">NBA: {item.nba}</span>
-                          </div>
-                          <div className="mt-1 pt-1 border-t border-zinc-800 font-mono font-semibold">
-                            Diferencia: {item.delta > 0 ? `+${item.delta}` : item.delta}
-                          </div>
-                        </div>
-                      );
-                    }}
-                  />
-                  <ReferenceLine y={0} stroke="#71717a" strokeDasharray="3 3" />
-                  <Bar dataKey="delta" radius={[4, 4, 4, 4]}>
-                    {deltaChartData.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={entry.delta >= 0 ? "#10b981" : "#f97316"}
-                      />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+            <div className="flex items-center gap-3.5">
+              {selectedPlayer.avatarUrl ? (
+                <img
+                  src={selectedPlayer.avatarUrl}
+                  alt={selectedPlayer.name}
+                  className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover object-top bg-[#0f1219] border border-[#262c3b] shrink-0"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              ) : null}
+              <div className="min-w-0">
+                <h2 className="text-xl sm:text-2xl font-black tracking-tight text-[#eceef2] truncate">
+                  {selectedPlayer.name}
+                </h2>
+                <p className="text-xs text-[#8b9099] mt-0.5 truncate">
+                  {diagnosis.label}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 mt-4 pt-3.5 border-t border-[#262c3b]">
+              <div className="bg-[#0f1219] rounded-lg p-2.5 border border-[#262c3b]">
+                <span className="text-[10px] uppercase tracking-wider text-[#4d84e2] font-bold block">
+                  Equipo ANBA 2K
+                </span>
+                <p className="text-xs sm:text-sm font-bold text-[#eceef2] mt-0.5 truncate">
+                  {selectedPlayer.anbaTeamName}
+                </p>
+                <p className="text-[11px] text-[#8b9099] font-mono mt-0.5">
+                  {selectedPlayer.anba.g} PJ · {selectedPlayer.anba.mp} MIN
+                </p>
+              </div>
+
+              <div className="bg-[#0f1219] rounded-lg p-2.5 border border-[#262c3b]">
+                <span className="text-[10px] uppercase tracking-wider text-[#c9a84c] font-bold block">
+                  Equipo NBA Real
+                </span>
+                <p className="text-xs sm:text-sm font-bold text-[#eceef2] mt-0.5 truncate">
+                  {selectedPlayer.nbaTeamName || selectedPlayer.nbaTeam}
+                </p>
+                <p className="text-[11px] text-[#8b9099] font-mono mt-0.5">
+                  {selectedPlayer.nba.g} PJ · {selectedPlayer.nba.mp} MIN
+                </p>
+              </div>
             </div>
           </div>
 
-          {/* Shot Diet & Shooting Splits */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Shot Diet Card */}
-            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/60 p-4 shadow-sm">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
-                  <Crosshair className="w-3.5 h-3.5 text-emerald-500" />
-                  Dieta de Tiro (2PA% vs 3PA%)
-                </h4>
-                <span className="font-mono text-[10px] sm:text-[11px] text-zinc-400">
-                  FTr: {selectedPlayer.anba.ftaRate}% / {selectedPlayer.nba.ftaRate}%
+          {/* Nearest Statistical Clone Pill */}
+          {topClone && (
+            <div className="mt-3.5 pt-3 border-t border-[#262c3b] flex items-center justify-between text-xs gap-2">
+              <span className="text-[#8b9099] flex items-center gap-1.5 shrink-0">
+                <Sparkles className="w-3.5 h-3.5 text-[#c9a84c]" />
+                En ANBA rinde como:
+              </span>
+              <span className="font-semibold text-[#eceef2] bg-[#0f1219] px-2.5 py-1 rounded-md border border-[#262c3b] truncate">
+                {topClone.name}{" "}
+                <span className="text-[#5ee89a] font-mono text-[11px]">
+                  ({topClone.similarity}% sim)
                 </span>
-              </div>
-
-              <div className="space-y-3 mt-3">
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                      ANBA ({selectedPlayer.anba.fga} FGA/p)
-                    </span>
-                    <span className="font-mono text-[11px] text-zinc-500">
-                      {selectedPlayer.anba.fg2aRate}% T2 · {selectedPlayer.anba.fg3aRate}% T3
-                    </span>
-                  </div>
-                  <div className="h-2.5 w-full rounded-full overflow-hidden bg-zinc-200 dark:bg-zinc-800 flex">
-                    <div
-                      style={{ width: `${selectedPlayer.anba.fg2aRate}%` }}
-                      className="bg-emerald-500/70 h-full"
-                      title={`Tiros de 2: ${selectedPlayer.anba.fg2aRate}%`}
-                    />
-                    <div
-                      style={{ width: `${selectedPlayer.anba.fg3aRate}%` }}
-                      className="bg-cyan-400 h-full"
-                      title={`Triples: ${selectedPlayer.anba.fg3aRate}%`}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="font-medium text-orange-600 dark:text-orange-400">
-                      NBA Real ({selectedPlayer.nba.fga} FGA/p)
-                    </span>
-                    <span className="font-mono text-[11px] text-zinc-500">
-                      {selectedPlayer.nba.fg2aRate}% T2 · {selectedPlayer.nba.fg3aRate}% T3
-                    </span>
-                  </div>
-                  <div className="h-2.5 w-full rounded-full overflow-hidden bg-zinc-200 dark:bg-zinc-800 flex">
-                    <div
-                      style={{ width: `${selectedPlayer.nba.fg2aRate}%` }}
-                      className="bg-orange-500/70 h-full"
-                      title={`Tiros de 2: ${selectedPlayer.nba.fg2aRate}%`}
-                    />
-                    <div
-                      style={{ width: `${selectedPlayer.nba.fg3aRate}%` }}
-                      className="bg-amber-300 h-full"
-                      title={`Triples: ${selectedPlayer.nba.fg3aRate}%`}
-                    />
-                  </div>
-                </div>
-              </div>
+              </span>
             </div>
+          )}
+        </div>
 
-            {/* Shooting Splits Card */}
-            {showExtraModules && onInspectClones ? (
-              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/60 p-4 shadow-sm flex flex-col justify-between">
-                <div>
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5 text-cyan-500" />
-                    Equivalente NBA de su versión ANBA
-                  </h4>
-                  {selectedPlayer.clones.nbaRealClones[0] && (
-                    <div className="mt-2.5">
-                      <div className="mt-2 flex items-center justify-between p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-950/80 border border-zinc-200/70 dark:border-zinc-800">
-                        <div>
-                          <div className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                            {selectedPlayer.clones.nbaRealClones[0].name}
-                          </div>
-                          <div className="text-[11px] font-mono text-zinc-500">
-                            NBA ({selectedPlayer.clones.nbaRealClones[0].nbaTeam}):{" "}
-                            {selectedPlayer.clones.nbaRealClones[0].pts} PTS ·{" "}
-                            {selectedPlayer.clones.nbaRealClones[0].trb} REB ·{" "}
-                            {selectedPlayer.clones.nbaRealClones[0].ast} AST
-                          </div>
-                        </div>
-                        <span className="font-mono text-xs font-bold px-2 py-1 rounded bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30">
-                          {selectedPlayer.clones.nbaRealClones[0].similarity}% Match
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
+        {/* 4 Summary Metric Cards (2x2 on Mobile, 4 cols on Desktop) */}
+        <div className="lg:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+          {/* Fidelidad Global */}
+          <div className="bg-[#161a23] border border-[#262c3b] rounded-xl p-3.5 sm:p-4 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099]">
+                Similitud
+              </span>
+              <Award className="w-4 h-4 text-[#4d84e2] shrink-0" />
+            </div>
+            <div className="my-1.5 sm:my-2">
+              <span className="text-2xl sm:text-3xl font-mono font-black text-[#eceef2]">
+                {selectedPlayer.similarityScore.toFixed(1)}%
+              </span>
+            </div>
+            <div className="text-[11px] text-[#8b9099]">
+              {selectedPlayer.similarityScore >= 80 ? (
+                <span className="text-[#5ee89a] font-medium">
+                  Alta fidelidad 2K
+                </span>
+              ) : selectedPlayer.similarityScore >= 55 ? (
+                <span className="text-[#7ab3ff] font-medium">
+                  Desviación moderada
+                </span>
+              ) : (
+                <span className="text-[#f6c453] font-medium">
+                  Rol distinto en 2K
+                </span>
+              )}
+            </div>
+          </div>
 
-                <button
-                  onClick={() => onInspectClones(selectedPlayer.id)}
-                  className="mt-3 w-full inline-flex items-center justify-center gap-1.5 text-xs font-medium text-cyan-600 dark:text-cyan-400 hover:underline pt-1"
-                >
-                  Ver los 5 clones estadísticos en detalle
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/60 p-4 shadow-sm flex flex-col justify-between">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 flex items-center gap-1.5">
-                    <Percent className="w-3.5 h-3.5 text-cyan-500" />
-                    Splits de Tiro (2P% / 3P% / FT%)
-                  </h4>
-                  <span className="font-mono text-[11px] text-zinc-400">
-                    ANBA vs NBA
-                  </span>
-                </div>
+          {/* Diferencial de Puntos */}
+          <div className="bg-[#161a23] border border-[#262c3b] rounded-xl p-3.5 sm:p-4 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099]">
+                Dif. Puntos
+              </span>
+              <Flame className="w-4 h-4 text-[#c9a84c] shrink-0" />
+            </div>
+            <div className="my-1.5 sm:my-2 flex items-baseline gap-1.5">
+              <span
+                className={`text-2xl sm:text-3xl font-mono font-black ${
+                  selectedPlayer.deltas.pts > 0.5
+                    ? "text-[#5ee89a]"
+                    : selectedPlayer.deltas.pts < -0.5
+                    ? "text-[#f85149]"
+                    : "text-[#eceef2]"
+                }`}
+              >
+                {formatDelta(selectedPlayer.deltas.pts, 1)}
+              </span>
+              <span className="text-[10px] text-[#8b9099] font-mono">PTS</span>
+            </div>
+            <div className="text-[11px] text-[#8b9099] font-mono">
+              <span className="text-[#4d84e2] font-semibold">
+                {selectedPlayer.anba.pts.toFixed(1)}
+              </span>{" "}
+              vs{" "}
+              <span className="text-[#c9a84c] font-semibold">
+                {selectedPlayer.nba.pts.toFixed(1)}
+              </span>
+            </div>
+          </div>
 
-                <div className="grid grid-cols-3 gap-2 mt-1">
-                  {[
-                    {
-                      label: "Tiro 2P%",
-                      anba: selectedPlayer.anba.fg2Pct,
-                      nba: selectedPlayer.nba.fg2Pct,
-                    },
-                    {
-                      label: "Triple 3P%",
-                      anba: selectedPlayer.anba.fg3Pct,
-                      nba: selectedPlayer.nba.fg3Pct,
-                    },
-                    {
-                      label: "Libres FT%",
-                      anba: selectedPlayer.anba.ftPct,
-                      nba: selectedPlayer.nba.ftPct,
-                    },
-                  ].map((s) => {
-                    const d = s.anba - s.nba;
-                    return (
-                      <div
-                        key={s.label}
-                        className="p-2 sm:p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-950/80 border border-zinc-200/70 dark:border-zinc-800 text-center"
-                      >
-                        <div className="text-[10px] text-zinc-400 truncate">
-                          {s.label}
-                        </div>
-                        <div className="font-mono text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                          {s.anba.toFixed(1)}%
-                        </div>
-                        <div className="font-mono text-[10px] sm:text-[11px] text-orange-500">
-                          {s.nba.toFixed(1)}%
-                        </div>
-                        <div className="mt-1">
-                          <span
-                            className={`inline-block font-mono text-[10px] px-1 py-0.2 rounded border ${getDeltaColorClass(
-                              d
-                            )}`}
-                          >
-                            {formatDelta(d, 1, "%")}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+          {/* Diferencial Eficiencia TS% */}
+          <div className="bg-[#161a23] border border-[#262c3b] rounded-xl p-3.5 sm:p-4 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099]">
+                Dif. TS%
+              </span>
+              <Activity className="w-4 h-4 text-[#5ee89a] shrink-0" />
+            </div>
+            <div className="my-1.5 sm:my-2 flex items-baseline gap-1">
+              <span
+                className={`text-2xl sm:text-3xl font-mono font-black ${
+                  selectedPlayer.deltas.tsPct > 0.5
+                    ? "text-[#5ee89a]"
+                    : selectedPlayer.deltas.tsPct < -0.5
+                    ? "text-[#f85149]"
+                    : "text-[#eceef2]"
+                }`}
+              >
+                {formatDelta(selectedPlayer.deltas.tsPct, 1, "%")}
+              </span>
+            </div>
+            <div className="text-[11px] text-[#8b9099] font-mono">
+              <span className="text-[#4d84e2] font-semibold">
+                {selectedPlayer.anba.tsPct.toFixed(1)}%
+              </span>{" "}
+              vs{" "}
+              <span className="text-[#c9a84c] font-semibold">
+                {selectedPlayer.nba.tsPct.toFixed(1)}%
+              </span>
+            </div>
+          </div>
+
+          {/* Muestra de Partidos Temporada */}
+          <div className="bg-[#161a23] border border-[#262c3b] rounded-xl p-3.5 sm:p-4 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099]">
+                Partidos {season}
+              </span>
+              <Shield className="w-4 h-4 text-[#7ab3ff] shrink-0" />
+            </div>
+            <div className="my-1.5 sm:my-2 flex items-baseline gap-1.5 font-mono">
+              <span className="text-xl sm:text-2xl font-black text-[#4d84e2]">
+                {selectedPlayer.anba.g}
+              </span>
+              <span className="text-xs text-[#8b9099]">ANBA</span>
+              <span className="text-[#8b9099]">/</span>
+              <span className="text-xl sm:text-2xl font-black text-[#c9a84c]">
+                {selectedPlayer.nba.g}
+              </span>
+              <span className="text-xs text-[#8b9099]">NBA</span>
+            </div>
+            <div className="text-[11px] text-[#8b9099] truncate">
+              {selectedPlayer.deltas.gameScore > 2.5 ? (
+                <span className="text-[#5ee89a] font-medium">
+                  ↑ Rinde más en ANBA
+                </span>
+              ) : selectedPlayer.deltas.gameScore < -2.5 ? (
+                <span className="text-[#f85149] font-medium">
+                  ↓ Rinde menos en ANBA
+                </span>
+              ) : (
+                <span className="text-[#8b9099]">Rendimiento parejo</span>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Detailed Side-by-Side Statistical Table — Mobile-First Card Rows + Desktop Grid */}
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/60 shadow-sm overflow-hidden">
-        <div className="px-4 sm:px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Desglose Estadístico Completo: ANBA vs. NBA Real
-            </h3>
-            <p className="text-xs text-zinc-500">
-              Comparativa métrica a métrica con barras de proporción visual y diferencial exacto.
-            </p>
+      {/* Main Comparison Grid: Diverging Bars + Radar & Shooting Splits */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
+        {/* Left: Head-to-Head Broadcast Stat Comparison Bars */}
+        <div className="lg:col-span-7 bg-[#161a23] border border-[#262c3b] rounded-xl p-4 sm:p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 sm:mb-5 pb-3 border-b border-[#262c3b]">
+            <div>
+              <h3 className="text-sm font-bold text-[#eceef2] uppercase tracking-wider">
+                Cara a Cara Estadístico (Por Partido)
+              </h3>
+              <p className="text-xs text-[#8b9099] mt-0.5">
+                Comparativa directa ANBA 2K vs NBA Real ({season})
+              </p>
+            </div>
+            <div className="flex items-center gap-4 text-xs font-semibold">
+              <span className="flex items-center gap-1.5 text-[#4d84e2]">
+                <span className="w-2.5 h-2.5 rounded-sm bg-[#4d84e2]" />
+                ANBA 2K
+              </span>
+              <span className="flex items-center gap-1.5 text-[#c9a84c]">
+                <span className="w-2.5 h-2.5 rounded-sm bg-[#c9a84c]" />
+                NBA Real
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-3 sm:gap-4 text-[11px] sm:text-xs font-mono">
-            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-              ● ANBA ({selectedPlayer.anbaTeam})
-            </span>
-            <span className="text-orange-600 dark:text-orange-400 font-semibold">
-              ● NBA ({selectedPlayer.nbaTeam})
-            </span>
+
+          <div className="space-y-3.5 sm:space-y-4">
+            {statRows.map((item) => {
+              const diff = item.anba - item.nba;
+              const anbaPct = Math.min(100, (item.anba / item.max) * 100);
+              const nbaPct = Math.min(100, (item.nba / item.max) * 100);
+              const isPositive = item.invertColor ? diff < -0.2 : diff > 0.2;
+              const isNegative = item.invertColor ? diff > 0.2 : diff < -0.2;
+
+              const diffBadgeClass = isPositive
+                ? "bg-[#5ee89a]/15 text-[#5ee89a] border border-[#5ee89a]/30"
+                : isNegative
+                ? "bg-[#f85149]/15 text-[#f85149] border border-[#f85149]/30"
+                : "bg-[#0f1219] text-[#8b9099] border border-[#262c3b]";
+
+              return (
+                <div
+                  key={item.label}
+                  className="bg-[#0f1219]/60 sm:bg-transparent rounded-lg p-2.5 sm:p-0 border border-[#262c3b]/60 sm:border-0"
+                >
+                  {/* Mobile top row: Label + Diff Pill */}
+                  <div className="flex sm:hidden items-center justify-between mb-1.5">
+                    <span className="text-xs font-semibold text-[#eceef2]">
+                      {item.label}
+                    </span>
+                    <span
+                      className={`inline-flex items-center gap-0.5 text-[11px] font-mono font-bold px-1.5 py-0.5 rounded ${diffBadgeClass}`}
+                    >
+                      {diff > 0.1 ? (
+                        <ArrowUpRight className="w-3 h-3" />
+                      ) : diff < -0.1 ? (
+                        <ArrowDownRight className="w-3 h-3" />
+                      ) : (
+                        <Minus className="w-3 h-3" />
+                      )}
+                      {formatDelta(diff, 1, item.suffix || "")}
+                    </span>
+                  </div>
+
+                  {/* Bar Comparison Row */}
+                  <div className="grid grid-cols-12 items-center gap-2">
+                    {/* Desktop Label */}
+                    <div className="hidden sm:block sm:col-span-4 text-xs font-medium text-[#eceef2] truncate">
+                      {item.label}
+                    </div>
+
+                    {/* ANBA Value + Right-Aligned Bar */}
+                    <div className="col-span-6 sm:col-span-3 flex items-center justify-end gap-2">
+                      <span className="font-mono text-xs font-bold text-[#4d84e2] shrink-0">
+                        {item.anba.toFixed(1)}
+                        {item.suffix || ""}
+                      </span>
+                      <div className="w-full bg-[#0f1219] h-2.5 rounded-l-full overflow-hidden flex justify-end border border-[#262c3b]">
+                        <div
+                          className="bg-[#4d84e2] h-full rounded-l-full transition-all duration-500"
+                          style={{ width: `${anbaPct}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* NBA Left-Aligned Bar + Value */}
+                    <div className="col-span-6 sm:col-span-3 flex items-center gap-2">
+                      <div className="w-full bg-[#0f1219] h-2.5 rounded-r-full overflow-hidden flex justify-start border border-[#262c3b]">
+                        <div
+                          className="bg-[#c9a84c] h-full rounded-r-full transition-all duration-500"
+                          style={{ width: `${nbaPct}%` }}
+                        />
+                      </div>
+                      <span className="font-mono text-xs font-bold text-[#c9a84c] shrink-0">
+                        {item.nba.toFixed(1)}
+                        {item.suffix || ""}
+                      </span>
+                    </div>
+
+                    {/* Desktop Diff Badge */}
+                    <div className="hidden sm:flex sm:col-span-2 justify-end">
+                      <span
+                        className={`inline-flex items-center gap-0.5 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded ${diffBadgeClass}`}
+                      >
+                        {diff > 0.1 ? (
+                          <ArrowUpRight className="w-3 h-3" />
+                        ) : diff < -0.1 ? (
+                          <ArrowDownRight className="w-3 h-3" />
+                        ) : (
+                          <Minus className="w-3 h-3" />
+                        )}
+                        {formatDelta(diff, 1)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        <div className="divide-y divide-zinc-200 dark:divide-zinc-800/70">
-          {statRows.map((section) => (
-            <div key={section.category} className="p-3.5 sm:p-5">
-              <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-3">
-                {section.category}
-              </div>
-              <div className="space-y-2.5 sm:space-y-2">
-                {section.items.map((item) => {
-                  const diff = item.anba - item.nba;
-                  const pctAnba = Math.min(100, Math.max(2, (item.anba / item.max) * 100));
-                  const pctNba = Math.min(100, Math.max(2, (item.nba / item.max) * 100));
-                  const suffix = item.suffix || "";
-
-                  return (
-                    <div
-                      key={item.label}
-                      className="rounded-lg border border-zinc-100 dark:border-zinc-800/40 sm:border-transparent bg-zinc-50/40 dark:bg-zinc-950/30 sm:bg-transparent p-2.5 sm:py-1.5 sm:px-2 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition"
-                    >
-                      {/* Mobile Layout (< 640px): Clean 2-Line Broadcast Card */}
-                      <div className="sm:hidden space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
-                            {item.shortLabel || item.label}
-                          </span>
-                          <span
-                            className={`font-mono text-[11px] px-1.5 py-0.5 rounded border font-semibold tabular-nums ${getDeltaColorClass(
-                              diff,
-                              item.invertColor
-                            )}`}
-                          >
-                            {formatDelta(diff, item.decimals, suffix)}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-2.5 font-mono text-xs tabular-nums">
-                          <span className="font-bold text-emerald-600 dark:text-emerald-400 w-14 text-left shrink-0">
-                            {item.anba.toFixed(item.decimals)}
-                            {suffix}
-                          </span>
-                          <div className="flex-1 space-y-1">
-                            <div className="w-full h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
-                              <div
-                                style={{ width: `${pctAnba}%` }}
-                                className="h-full bg-emerald-500 rounded-full"
-                              />
-                            </div>
-                            <div className="w-full h-1.5 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
-                              <div
-                                style={{ width: `${pctNba}%` }}
-                                className="h-full bg-orange-500 rounded-full"
-                              />
-                            </div>
-                          </div>
-                          <span className="font-semibold text-orange-600 dark:text-orange-400 w-14 text-right shrink-0">
-                            {item.nba.toFixed(item.decimals)}
-                            {suffix}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Desktop / Tablet Layout (>= 640px): 12-Col Precision Row */}
-                      <div className="hidden sm:grid sm:grid-cols-12 items-center gap-3">
-                        <div className="col-span-4 text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                          {item.label}
-                        </div>
-
-                        <div className="col-span-5 space-y-1">
-                          <div className="w-full h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-                            <div
-                              style={{ width: `${pctAnba}%` }}
-                              className="h-full bg-emerald-500 rounded-full"
-                            />
-                          </div>
-                          <div className="w-full h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-                            <div
-                              style={{ width: `${pctNba}%` }}
-                              className="h-full bg-orange-500 rounded-full"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="col-span-3 flex items-center justify-end gap-2 font-mono text-xs tabular-nums">
-                          <span className="font-bold text-emerald-600 dark:text-emerald-400 w-14 text-right">
-                            {item.anba.toFixed(item.decimals)}
-                            {suffix}
-                          </span>
-                          <span className="text-zinc-400">/</span>
-                          <span className="font-semibold text-orange-600 dark:text-orange-400 w-14 text-right">
-                            {item.nba.toFixed(item.decimals)}
-                            {suffix}
-                          </span>
-                          <span
-                            className={`w-16 text-right px-1.5 py-0.5 rounded border text-[11px] font-semibold ${getDeltaColorClass(
-                              diff,
-                              item.invertColor
-                            )}`}
-                          >
-                            {formatDelta(diff, item.decimals, suffix)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+        {/* Right Column: 6-Axis Radar + Shooting Splits */}
+        <div className="lg:col-span-5 flex flex-col gap-4 sm:gap-6">
+          {/* Percentile Radar Chart */}
+          <div className="bg-[#161a23] border border-[#262c3b] rounded-xl p-4 sm:p-5 flex-1">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h3 className="text-sm font-bold text-[#eceef2] uppercase tracking-wider">
+                  Huella de Percentiles (0–99)
+                </h3>
+                <p className="text-xs text-[#8b9099]">
+                  Impacto relativo frente al resto de la liga
+                </p>
               </div>
             </div>
-          ))}
+
+            <div className="h-60 sm:h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart cx="50%" cy="50%" outerRadius="73%" data={radarData}>
+                  <PolarGrid stroke="#262c3b" />
+                  <PolarAngleAxis
+                    dataKey="metric"
+                    tick={{ fill: "#eceef2", fontSize: 11, fontWeight: 600 }}
+                  />
+                  <PolarRadiusAxis
+                    angle={30}
+                    domain={[0, 100]}
+                    tick={{ fill: "#8b9099", fontSize: 9 }}
+                    axisLine={false}
+                  />
+                  <Radar
+                    name="ANBA 2K"
+                    dataKey="ANBA"
+                    stroke="#4d84e2"
+                    strokeWidth={2}
+                    fill="#4d84e2"
+                    fillOpacity={0.28}
+                  />
+                  <Radar
+                    name="NBA Real"
+                    dataKey="NBA"
+                    stroke="#c9a84c"
+                    strokeWidth={2}
+                    fill="#c9a84c"
+                    fillOpacity={0.22}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#161a23",
+                      borderColor: "#262c3b",
+                      borderRadius: "0.5rem",
+                      fontSize: "12px",
+                      color: "#eceef2",
+                    }}
+                  />
+                  <Legend
+                    wrapperStyle={{ fontSize: "12px", paddingTop: "6px" }}
+                  />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Shooting Efficiency Splits Bar Chart */}
+          <div className="bg-[#161a23] border border-[#262c3b] rounded-xl p-4 sm:p-5">
+            <div className="mb-3">
+              <h3 className="text-sm font-bold text-[#eceef2] uppercase tracking-wider">
+                Splits de Tiro (FG% / 3P% / FT% / TS%)
+              </h3>
+              <p className="text-xs text-[#8b9099]">
+                Comparativa de porcentajes de acierto
+              </p>
+            </div>
+
+            <div className="h-44 sm:h-48 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={shootingSplitsData}
+                  margin={{ top: 5, right: 5, left: -24, bottom: 0 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#262c3b"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fill: "#8b9099", fontSize: 11 }}
+                    axisLine={{ stroke: "#262c3b" }}
+                  />
+                  <YAxis
+                    domain={[0, 100]}
+                    tick={{ fill: "#8b9099", fontSize: 10 }}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "rgba(38, 44, 59, 0.4)" }}
+                    contentStyle={{
+                      backgroundColor: "#161a23",
+                      borderColor: "#262c3b",
+                      borderRadius: "0.5rem",
+                      fontSize: "12px",
+                      color: "#eceef2",
+                    }}
+                    formatter={(val: number) => `${val.toFixed(1)}%`}
+                  />
+                  <Bar
+                    dataKey="ANBA"
+                    name="ANBA 2K"
+                    fill="#4d84e2"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="NBA"
+                    name="NBA Real"
+                    fill="#c9a84c"
+                    radius={[4, 4, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         </div>
       </div>
     </div>

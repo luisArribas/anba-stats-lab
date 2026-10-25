@@ -2,32 +2,59 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --background: 0 0% 98%;
-    --foreground: 240 10% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --border: 240 5.9% 90%;
-  }
-
-  .dark {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 6.5%;
-    --card-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-  }
+:root {
+  color-scheme: dark;
+  /* Exact dark-mode palette from anba2k.es (.dark .front) */
+  --theme-bg: #0f1219;
+  --theme-surface: #161a23;
+  --theme-border: #262c3b;
+  --theme-text: #eceef2;
+  --theme-muted: #8b9099;
+  --theme-accent: #4d84e2;
+  --theme-accent-hover: #6396e8;
+  --theme-accent-subtle: #16233a;
+  --theme-brand: #d9b55a;
+  --color-front-gold: #c9a84c;
+  --theme-success: #5ee89a;
+  --theme-warning: #f6c453;
+  --theme-danger: #f85149;
+  --theme-info: #7ab3ff;
 }
 
 body {
+  background-color: var(--theme-bg);
+  color: var(--theme-text);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Exact thin scrollbar from anba2k.es */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--theme-border) transparent;
+}
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--theme-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--theme-muted);
+}
+
+/* Hide scrollbar for mobile horizontal chip strips */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
