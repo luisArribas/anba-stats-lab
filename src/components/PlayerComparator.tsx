@@ -29,6 +29,9 @@ import {
   Award,
   Flame,
   Calendar,
+  Info,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 interface Props {
@@ -50,6 +53,7 @@ export default function PlayerComparator({
   );
   const [positionFilter, setPositionFilter] = useState<string>("ALL");
   const [showDropdown, setShowDropdown] = useState(false);
+  const [showMethodology, setShowMethodology] = useState(false);
 
   const activePlayerId = controlledPlayerId || internalPlayerId;
   const handleSelectPlayer = (id: string) => {
@@ -813,6 +817,134 @@ export default function PlayerComparator({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Methodology & Formulas Explainer Accordion */}
+      <div className="bg-[#161a23] border border-[#262c3b] rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowMethodology((prev) => !prev)}
+          className="w-full px-4 sm:px-5 py-3.5 flex items-center justify-between text-left hover:bg-[#0f1219]/50 transition-colors"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-[#16233a] text-[#4d84e2] border border-[#4d84e2]/30">
+              <Info className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs sm:text-sm font-bold text-[#eceef2]">
+                ¿Cómo se calculan el % de Similitud, el Gráfico de Araña y el Clon Estadístico?
+              </h3>
+              <p className="text-[11px] text-[#8b9099] hidden sm:block">
+                Haz clic para ver el detalle de las fórmulas y ponderaciones utilizadas en ANBA Stats Lab
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-[#4d84e2] shrink-0 ml-2">
+            <span>{showMethodology ? "Ocultar detalle" : "Ver fórmulas"}</span>
+            {showMethodology ? (
+              <ChevronUp className="w-4 h-4" />
+            ) : (
+              <ChevronDown className="w-4 h-4" />
+            )}
+          </div>
+        </button>
+
+        {showMethodology && (
+          <div className="px-4 sm:px-5 pb-5 pt-2 border-t border-[#262c3b] space-y-4 text-xs text-[#8b9099]">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+              {/* 1. % de Similitud */}
+              <div className="bg-[#0f1219] border border-[#262c3b] rounded-lg p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#eceef2] uppercase tracking-wider">
+                    1. % de Similitud Global
+                  </span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#16233a] text-[#7ab3ff]">
+                    0 – 99.5%
+                  </span>
+                </div>
+                <p className="leading-relaxed">
+                  Mide el parecido directo entre los promedios por partido del jugador en{" "}
+                  <strong className="text-[#4d84e2]">ANBA 2K</strong> y en la{" "}
+                  <strong className="text-[#c9a84c]">NBA Real</strong> a través de 8 métricas clave ponderadas (sin penalizar por el menor número de faltas/tiros libres que se pitan en el simulador 2K):
+                </p>
+                <ul className="space-y-1 font-mono text-[11px] text-[#eceef2]/90 pt-1">
+                  <li>· Puntos (PTS): <span className="text-[#4d84e2]">25%</span> (escala ±8.0)</li>
+                  <li>· Rebotes (REB): <span className="text-[#4d84e2]">18%</span> (escala ±4.0)</li>
+                  <li>· Asistencias (AST): <span className="text-[#4d84e2]">18%</span> (escala ±3.2)</li>
+                  <li>· Eficiencia (TS%): <span className="text-[#4d84e2]">12%</span> (escala ±12%)</li>
+                  <li>· Triples (3PM): <span className="text-[#4d84e2]">9%</span> (escala ±1.8)</li>
+                  <li>· Robos / Tapones / Minutos: <span className="text-[#4d84e2]">6% c/u</span></li>
+                </ul>
+                <p className="text-[11px] text-[#8b9099] pt-1 border-t border-[#262c3b]/70">
+                  La distancia ponderada <code className="text-[#eceef2]">D</code> se convierte en porcentaje mediante decaimiento exponencial:{" "}
+                  <code className="text-[#5ee89a]">100 × e^(-0.48 × D)</code>.
+                </p>
+              </div>
+
+              {/* 2. Gráfico de Araña */}
+              <div className="bg-[#0f1219] border border-[#262c3b] rounded-lg p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#eceef2] uppercase tracking-wider">
+                    2. Huella de Percentiles (Araña)
+                  </span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#c9a84c]/15 text-[#f6c453]">
+                    Percentil 0–99
+                  </span>
+                </div>
+                <p className="leading-relaxed">
+                  Cada vértice indica a qué porcentaje de jugadores de la liga supera en esa faceta (dentro de ANBA por un lado y dentro de la NBA por otro):
+                </p>
+                <ul className="space-y-1 text-[11px] text-[#eceef2]/90 pt-1">
+                  <li>
+                    <strong className="text-[#eceef2]">· Anotación:</strong>{" "}
+                    <code className="text-[#8b9099]">65% PTS/partido + 35% PTS/36m</code>
+                  </li>
+                  <li>
+                    <strong className="text-[#eceef2]">· Creación:</strong>{" "}
+                    <code className="text-[#8b9099]">70% AST/partido + 30% AST/36m − 25% TOV</code>
+                  </li>
+                  <li>
+                    <strong className="text-[#eceef2]">· Rebote:</strong>{" "}
+                    <code className="text-[#8b9099]">70% REB + 30% REB/36m + bonus ROF</code>
+                  </li>
+                  <li>
+                    <strong className="text-[#eceef2]">· Defensa:</strong>{" "}
+                    <code className="text-[#8b9099]">65% (STL+BLK) + 35% (STL+BLK)/36m</code>
+                  </li>
+                  <li>
+                    <strong className="text-[#eceef2]">· Eficiencia:</strong>{" "}
+                    <code className="text-[#8b9099]">65% True Shooting (TS%) + 35% eFG%</code>
+                  </li>
+                  <li>
+                    <strong className="text-[#eceef2]">· Triple:</strong>{" "}
+                    <code className="text-[#8b9099]">Volumen de 3PM anotados + acierto 3P%</code>
+                  </li>
+                </ul>
+              </div>
+
+              {/* 3. TS% y Clon Estadístico */}
+              <div className="bg-[#0f1219] border border-[#262c3b] rounded-lg p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#eceef2] uppercase tracking-wider">
+                    3. True Shooting (TS%) y Clones
+                  </span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#5ee89a]/15 text-[#5ee89a]">
+                    Métricas Avanzadas
+                  </span>
+                </div>
+                <p className="leading-relaxed">
+                  <strong className="text-[#eceef2]">True Shooting (TS%):</strong> Mide la eficiencia real de anotación ponderando tiros de 2, triples (que valen un 50% más) y tiros libres:
+                </p>
+                <div className="bg-[#161a23] px-2.5 py-1.5 rounded border border-[#262c3b] font-mono text-[11px] text-[#eceef2] text-center">
+                  TS% = PTS / [ 2 × (FGA + 0.44 × FTA) ]
+                </div>
+                <p className="leading-relaxed pt-1">
+                  <strong className="text-[#eceef2]">«En ANBA rinde como...»:</strong> Compara el vector estadístico estandarizado (Z-Score) del jugador en ANBA contra todos los jugadores de la NBA real y encuentra el jugador real cuya huella estadística es más cercana.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

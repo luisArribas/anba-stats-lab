@@ -441,12 +441,12 @@ def compute_radar_percentiles(players: List[Dict[str, Any]], min_mp_threshold: f
 
     def score_for(block: Dict[str, float]) -> Dict[str, float]:
         return {
-            "scoring": block["pts36"] * 0.65 + block["pts"] * 0.35,
+            "scoring": block["pts"] * 0.65 + block["pts36"] * 0.35,
             "efficiency": block["tsPct"] * 0.65 + block["efgPct"] * 0.35,
-            "playmaking": block["ast36"] * 0.75 + block["astTov"] * 1.2,
-            "rebounding": block["trb36"] * 0.75 + block["orb"] * 1.5,
-            "defense": block["stl36"] * 1.3 + block["blk36"] * 1.1,
-            "perimeter": block["fg3"] * 2.2 + (block["fg3Pct"] * 0.06 if block["fg3a"] >= 1.2 else 0.0),
+            "playmaking": block["ast"] * 0.70 + block["ast36"] * 0.30 - block["tov"] * 0.25,
+            "rebounding": block["trb"] * 0.70 + block["trb36"] * 0.30 + block["orb"] * 0.50,
+            "defense": (block["stl"] + block["blk"]) * 0.65 + (block["stl36"] + block["blk36"]) * 0.35,
+            "perimeter": block["fg3"] * 2.0 + (block["fg3Pct"] * 0.06 if block["fg3a"] >= 1.2 else 0.0),
         }
 
     dims = ["scoring", "efficiency", "playmaking", "rebounding", "defense", "perimeter"]
@@ -587,36 +587,15 @@ def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, seaso
             continue
         nrow = nba_by_key[nkey]
 
-        mp_a = max(1.0, float(ap.get("minutes") or 0.0))
-        mp_n = max(1.0, float(nrow.get("MP") or 0.0))
+        mp_a = float(ap.get("minutes") or 0.0)
+        mp_n = float(nrow.get("MP") or 0.0)
         if mp_a <= 0 or mp_n <= 0:
             continue
 
-        total_w_diff = 0.0
-        for acol, ncol, w, mult36 in weights_map:
-            va = float(ap.get(acol) or 0.0)
-            vn = float(nrow.get(ncol) or 0.0)
-            mean_n = nba_means.get(ncol, 1.0)
-            if acol == "minutes":
-                diff = abs(mp_a - mp_n) / mean_n
-            elif acol == "pts":
-                diff = abs(va / mp_a - vn / mp_n) / mean_n
-            else:
-                scale = 36.0 if mult36 else 1.0
-                diff = abs(va / mp_a - vn / mp_n) * scale / mean_n
-            total_w_diff += diff * w
-
-        matched_records.append((ap, nrow, total_w_diff))
-
-    ref_scores = [r[2] for r in matched_records if float(r[0].get("minutes") or 0) >= 8.0]
-    if not ref_scores:
-        ref_scores = [r[2] for r in matched_records]
+        matched_records.append((ap, nrow))
 
     players_list: List[Dict[str, Any]] = []
-    for ap, nrow, raw_score in matched_records:
-        pct = float(percentileofscore(ref_scores, raw_score, kind="rank")) if ref_scores else 50.0
-        score_final = round(max(0.5, min(99.9, 100.0 - pct)), 2)
-
+    for ap, nrow in matched_records:
         raw_pos = str(ap.get("playerPosition") or nrow.get("Pos") or "SF").strip()
         pos_code = POS_MAP.get(raw_pos, "SF")
         pos_es = POS_ES_MAP.get(pos_code, "Alero")
@@ -672,6 +651,21 @@ def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, seaso
             fta=float(nrow.get("FTA") or 0),
             plus_minus=0.0,
         )
+
+        # Cálculo de Similitud Real Absoluta (0-100%) basada en las 8 métricas clave por partido
+        # Evita castigar por el menor volumen de tiros libres del motor 2K o por ranking percentil forzado
+        sim_components = [
+            (abs(anba_stats["pts"] - nba_stats["pts"]) / 8.0, 0.25),
+            (abs(anba_stats["trb"] - nba_stats["trb"]) / 4.0, 0.18),
+            (abs(anba_stats["ast"] - nba_stats["ast"]) / 3.2, 0.18),
+            (abs(anba_stats["tsPct"] - nba_stats["tsPct"]) / 12.0, 0.12),
+            (abs(anba_stats["fg3"] - nba_stats["fg3"]) / 1.8, 0.09),
+            (abs(anba_stats["stl"] - nba_stats["stl"]) / 1.0, 0.06),
+            (abs(anba_stats["blk"] - nba_stats["blk"]) / 1.2, 0.06),
+            (abs(anba_stats["mp"] - nba_stats["mp"]) / 10.0, 0.06),
+        ]
+        weighted_dist = sum(d * w for d, w in sim_components)
+        score_final = round(float(max(5.0, min(99.5, 100.0 * np.exp(-0.48 * weighted_dist)))), 1)
 
         deltas = {
             "mp": round(anba_stats["mp"] - nba_stats["mp"], 2),
