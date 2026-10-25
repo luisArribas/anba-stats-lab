@@ -32,7 +32,12 @@ import {
   Info,
   ChevronDown,
   ChevronUp,
+  ArrowUpDown,
+  ListOrdered,
+  X,
 } from "lucide-react";
+
+type RankingSortField = "similarity" | "ptsDelta" | "tsDelta";
 
 interface Props {
   players: PlayerComparison[];
@@ -54,6 +59,67 @@ export default function PlayerComparator({
   const [positionFilter, setPositionFilter] = useState<string>("ALL");
   const [showDropdown, setShowDropdown] = useState(false);
   const [showMethodology, setShowMethodology] = useState(false);
+
+  // Estado para el Ranking Global al hacer clic en Similitud, Dif. Puntos o Dif. TS%
+  const [showRankingPanel, setShowRankingPanel] = useState(false);
+  const [rankingSortField, setRankingSortField] =
+    useState<RankingSortField>("similarity");
+  const [rankingSortDesc, setRankingSortDesc] = useState<boolean>(true);
+  const [rankingMinMinutes, setRankingMinMinutes] = useState<boolean>(false);
+  const [rankingSearch, setRankingSearch] = useState<string>("");
+
+  const handleOpenRanking = (field: RankingSortField) => {
+    if (showRankingPanel && rankingSortField === field) {
+      // Si ya está abierto en esa métrica, invierte el orden (Mayor a Menor <-> Menor a Mayor)
+      setRankingSortDesc((prev) => !prev);
+    } else {
+      setRankingSortField(field);
+      setRankingSortDesc(true);
+      setShowRankingPanel(true);
+    }
+  };
+
+  const rankedLeaguePlayers = useMemo(() => {
+    const q = rankingSearch.trim().toLowerCase();
+    return players
+      .filter((p) => {
+        if (rankingMinMinutes && (p.anba.mp < 12 || p.nba.mp < 12)) {
+          return false;
+        }
+        if (positionFilter !== "ALL" && !p.pos.includes(positionFilter)) {
+          return false;
+        }
+        if (!q) return true;
+        return (
+          p.name.toLowerCase().includes(q) ||
+          p.anbaTeam.toLowerCase().includes(q) ||
+          p.anbaTeamName.toLowerCase().includes(q) ||
+          p.nbaTeam.toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => {
+        let valA = 0;
+        let valB = 0;
+        if (rankingSortField === "similarity") {
+          valA = a.similarityScore;
+          valB = b.similarityScore;
+        } else if (rankingSortField === "ptsDelta") {
+          valA = a.deltas.pts;
+          valB = b.deltas.pts;
+        } else {
+          valA = a.deltas.tsPct;
+          valB = b.deltas.tsPct;
+        }
+        return rankingSortDesc ? valB - valA : valA - valB;
+      });
+  }, [
+    players,
+    rankingSortField,
+    rankingSortDesc,
+    rankingMinMinutes,
+    positionFilter,
+    rankingSearch,
+  ]);
 
   const activePlayerId = controlledPlayerId || internalPlayerId;
   const handleSelectPlayer = (id: string) => {
@@ -444,10 +510,18 @@ export default function PlayerComparator({
 
         {/* 4 Summary Metric Cards (2x2 on Mobile, 4 cols on Desktop) */}
         <div className="lg:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
-          {/* Fidelidad Global */}
-          <div className="bg-[#161a23] border border-[#262c3b] rounded-xl p-3.5 sm:p-4 flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099]">
+          {/* Fidelidad Global (Clickable Ranking Trigger) */}
+          <button
+            type="button"
+            onClick={() => handleOpenRanking("similarity")}
+            className={`bg-[#161a23] border rounded-xl p-3.5 sm:p-4 flex flex-col justify-between text-left transition-all group cursor-pointer ${
+              showRankingPanel && rankingSortField === "similarity"
+                ? "border-[#4d84e2] bg-[#16233a]/40 shadow-md"
+                : "border-[#262c3b] hover:border-[#4d84e2]/60 hover:bg-[#16233a]/20"
+            }`}
+          >
+            <div className="flex items-center justify-between w-full">
+              <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099] group-hover:text-[#eceef2] transition-colors">
                 Similitud
               </span>
               <Award className="w-4 h-4 text-[#4d84e2] shrink-0" />
@@ -457,27 +531,41 @@ export default function PlayerComparator({
                 {selectedPlayer.similarityScore.toFixed(1)}%
               </span>
             </div>
-            <div className="text-[11px] text-[#8b9099]">
-              {selectedPlayer.similarityScore >= 80 ? (
-                <span className="text-[#5ee89a] font-medium">
-                  Alta fidelidad 2K
-                </span>
-              ) : selectedPlayer.similarityScore >= 55 ? (
-                <span className="text-[#7ab3ff] font-medium">
-                  Desviación moderada
-                </span>
-              ) : (
-                <span className="text-[#f6c453] font-medium">
-                  Rol distinto en 2K
-                </span>
-              )}
+            <div className="space-y-1 w-full">
+              <div className="text-[11px] text-[#8b9099] truncate">
+                {selectedPlayer.similarityScore >= 80 ? (
+                  <span className="text-[#5ee89a] font-medium">
+                    Alta fidelidad 2K
+                  </span>
+                ) : selectedPlayer.similarityScore >= 55 ? (
+                  <span className="text-[#7ab3ff] font-medium">
+                    Desviación moderada
+                  </span>
+                ) : (
+                  <span className="text-[#f6c453] font-medium">
+                    Rol distinto en 2K
+                  </span>
+                )}
+              </div>
+              <div className="text-[10px] font-semibold text-[#4d84e2] flex items-center gap-1 pt-1 border-t border-[#262c3b]/70">
+                <ListOrdered className="w-3 h-3" />
+                <span>Ver ranking liga →</span>
+              </div>
             </div>
-          </div>
+          </button>
 
-          {/* Diferencial de Puntos */}
-          <div className="bg-[#161a23] border border-[#262c3b] rounded-xl p-3.5 sm:p-4 flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099]">
+          {/* Diferencial de Puntos (Clickable Ranking Trigger) */}
+          <button
+            type="button"
+            onClick={() => handleOpenRanking("ptsDelta")}
+            className={`bg-[#161a23] border rounded-xl p-3.5 sm:p-4 flex flex-col justify-between text-left transition-all group cursor-pointer ${
+              showRankingPanel && rankingSortField === "ptsDelta"
+                ? "border-[#4d84e2] bg-[#16233a]/40 shadow-md"
+                : "border-[#262c3b] hover:border-[#4d84e2]/60 hover:bg-[#16233a]/20"
+            }`}
+          >
+            <div className="flex items-center justify-between w-full">
+              <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099] group-hover:text-[#eceef2] transition-colors">
                 Dif. Puntos
               </span>
               <Flame className="w-4 h-4 text-[#c9a84c] shrink-0" />
@@ -496,21 +584,35 @@ export default function PlayerComparator({
               </span>
               <span className="text-[10px] text-[#8b9099] font-mono">PTS</span>
             </div>
-            <div className="text-[11px] text-[#8b9099] font-mono">
-              <span className="text-[#4d84e2] font-semibold">
-                {selectedPlayer.anba.pts.toFixed(1)}
-              </span>{" "}
-              vs{" "}
-              <span className="text-[#c9a84c] font-semibold">
-                {selectedPlayer.nba.pts.toFixed(1)}
-              </span>
+            <div className="space-y-1 w-full">
+              <div className="text-[11px] text-[#8b9099] font-mono">
+                <span className="text-[#4d84e2] font-semibold">
+                  {selectedPlayer.anba.pts.toFixed(1)}
+                </span>{" "}
+                vs{" "}
+                <span className="text-[#c9a84c] font-semibold">
+                  {selectedPlayer.nba.pts.toFixed(1)}
+                </span>
+              </div>
+              <div className="text-[10px] font-semibold text-[#4d84e2] flex items-center gap-1 pt-1 border-t border-[#262c3b]/70">
+                <ListOrdered className="w-3 h-3" />
+                <span>Ver ranking liga →</span>
+              </div>
             </div>
-          </div>
+          </button>
 
-          {/* Diferencial Eficiencia TS% */}
-          <div className="bg-[#161a23] border border-[#262c3b] rounded-xl p-3.5 sm:p-4 flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099]">
+          {/* Diferencial Eficiencia TS% (Clickable Ranking Trigger) */}
+          <button
+            type="button"
+            onClick={() => handleOpenRanking("tsDelta")}
+            className={`bg-[#161a23] border rounded-xl p-3.5 sm:p-4 flex flex-col justify-between text-left transition-all group cursor-pointer ${
+              showRankingPanel && rankingSortField === "tsDelta"
+                ? "border-[#4d84e2] bg-[#16233a]/40 shadow-md"
+                : "border-[#262c3b] hover:border-[#4d84e2]/60 hover:bg-[#16233a]/20"
+            }`}
+          >
+            <div className="flex items-center justify-between w-full">
+              <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099] group-hover:text-[#eceef2] transition-colors">
                 Dif. TS%
               </span>
               <Activity className="w-4 h-4 text-[#5ee89a] shrink-0" />
@@ -528,16 +630,22 @@ export default function PlayerComparator({
                 {formatDelta(selectedPlayer.deltas.tsPct, 1, "%")}
               </span>
             </div>
-            <div className="text-[11px] text-[#8b9099] font-mono">
-              <span className="text-[#4d84e2] font-semibold">
-                {selectedPlayer.anba.tsPct.toFixed(1)}%
-              </span>{" "}
-              vs{" "}
-              <span className="text-[#c9a84c] font-semibold">
-                {selectedPlayer.nba.tsPct.toFixed(1)}%
-              </span>
+            <div className="space-y-1 w-full">
+              <div className="text-[11px] text-[#8b9099] font-mono">
+                <span className="text-[#4d84e2] font-semibold">
+                  {selectedPlayer.anba.tsPct.toFixed(1)}%
+                </span>{" "}
+                vs{" "}
+                <span className="text-[#c9a84c] font-semibold">
+                  {selectedPlayer.nba.tsPct.toFixed(1)}%
+                </span>
+              </div>
+              <div className="text-[10px] font-semibold text-[#4d84e2] flex items-center gap-1 pt-1 border-t border-[#262c3b]/70">
+                <ListOrdered className="w-3 h-3" />
+                <span>Ver ranking liga →</span>
+              </div>
             </div>
-          </div>
+          </button>
 
           {/* Muestra de Partidos Temporada */}
           <div className="bg-[#161a23] border border-[#262c3b] rounded-xl p-3.5 sm:p-4 flex flex-col justify-between">
@@ -574,6 +682,247 @@ export default function PlayerComparator({
           </div>
         </div>
       </div>
+
+      {/* Expandable League-Wide Ranking Table (Similitud / Dif. Puntos / Dif. TS%) */}
+      {showRankingPanel && (
+        <div className="bg-[#161a23] border border-[#4d84e2]/50 rounded-xl p-4 sm:p-5 shadow-xl space-y-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-[#262c3b]">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-[#16233a] text-[#4d84e2] border border-[#4d84e2]/30">
+                  <ListOrdered className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#eceef2] uppercase tracking-wider">
+                    Ranking de Toda la Liga ({season})
+                  </h3>
+                  <p className="text-xs text-[#8b9099]">
+                    Haz clic en cualquier jugador para cargarlo en el comparador ({rankedLeaguePlayers.length} jugadores)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRankingPanel(false)}
+                className="lg:hidden p-1.5 rounded-lg bg-[#0f1219] text-[#8b9099] hover:text-[#eceef2] border border-[#262c3b]"
+                title="Cerrar ranking"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Controles de Ordenación y Filtros */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Selector de Métrica */}
+              <div className="flex items-center bg-[#0f1219] p-1 rounded-lg border border-[#262c3b]">
+                {[
+                  { id: "similarity" as RankingSortField, label: "Similitud %" },
+                  { id: "ptsDelta" as RankingSortField, label: "Dif. Puntos" },
+                  { id: "tsDelta" as RankingSortField, label: "Dif. TS%" },
+                ].map((tab) => {
+                  const active = rankingSortField === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setRankingSortField(tab.id)}
+                      className={`px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                        active
+                          ? "bg-[#4d84e2] text-white"
+                          : "text-[#8b9099] hover:text-[#eceef2]"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Botón Invertir Orden (Mayor a Menor / Menor a Mayor) */}
+              <button
+                type="button"
+                onClick={() => setRankingSortDesc((prev) => !prev)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0f1219] hover:bg-[#16233a] text-xs font-semibold text-[#eceef2] border border-[#262c3b] transition-colors"
+              >
+                <ArrowUpDown className="w-3.5 h-3.5 text-[#4d84e2]" />
+                <span>
+                  {rankingSortDesc ? "Mayor a Menor ↓" : "Menor a Mayor ↑"}
+                </span>
+              </button>
+
+              {/* Filtro Rotación >= 12 min */}
+              <button
+                type="button"
+                onClick={() => setRankingMinMinutes((prev) => !prev)}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                  rankingMinMinutes
+                    ? "bg-[#16233a] border-[#4d84e2]/50 text-[#7ab3ff]"
+                    : "bg-[#0f1219] border-[#262c3b] text-[#8b9099] hover:text-[#eceef2]"
+                }`}
+              >
+                ≥ 12 MIN
+              </button>
+
+              {/* Buscador rápido dentro de la lista */}
+              <input
+                type="text"
+                value={rankingSearch}
+                onChange={(e) => setRankingSearch(e.target.value)}
+                placeholder="Filtrar nombre/equipo..."
+                className="bg-[#0f1219] border border-[#262c3b] focus:border-[#4d84e2] rounded-lg px-2.5 py-1.5 text-xs text-[#eceef2] placeholder:text-[#8b9099] focus:outline-none w-36 sm:w-44"
+              />
+
+              {/* Cerrar en Desktop */}
+              <button
+                type="button"
+                onClick={() => setShowRankingPanel(false)}
+                className="hidden lg:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#0f1219] hover:bg-[#262c3b] text-xs text-[#8b9099] hover:text-[#eceef2] border border-[#262c3b] transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Cerrar</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Tabla Scrollable */}
+          <div className="max-h-96 overflow-y-auto rounded-lg border border-[#262c3b] bg-[#0f1219]">
+            <table className="w-full text-left border-collapse">
+              <thead className="sticky top-0 z-10 bg-[#161a23] border-b border-[#262c3b] text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-[#8b9099]">
+                <tr>
+                  <th className="py-2.5 px-2.5 sm:px-3 w-10 text-center">#</th>
+                  <th className="py-2.5 px-2 sm:px-3">Jugador</th>
+                  <th
+                    onClick={() => handleOpenRanking("similarity")}
+                    className={`py-2.5 px-2 sm:px-3 text-right cursor-pointer hover:text-[#eceef2] ${
+                      rankingSortField === "similarity" ? "text-[#4d84e2]" : ""
+                    }`}
+                  >
+                    Similitud {rankingSortField === "similarity" && (rankingSortDesc ? "↓" : "↑")}
+                  </th>
+                  <th
+                    onClick={() => handleOpenRanking("ptsDelta")}
+                    className={`py-2.5 px-2 sm:px-3 text-right cursor-pointer hover:text-[#eceef2] ${
+                      rankingSortField === "ptsDelta" ? "text-[#4d84e2]" : ""
+                    }`}
+                  >
+                    Dif. PTS {rankingSortField === "ptsDelta" && (rankingSortDesc ? "↓" : "↑")}
+                  </th>
+                  <th className="hidden md:table-cell py-2.5 px-3 text-right">
+                    PTS (ANBA vs NBA)
+                  </th>
+                  <th
+                    onClick={() => handleOpenRanking("tsDelta")}
+                    className={`py-2.5 px-2.5 sm:px-3 text-right cursor-pointer hover:text-[#eceef2] ${
+                      rankingSortField === "tsDelta" ? "text-[#4d84e2]" : ""
+                    }`}
+                  >
+                    Dif. TS% {rankingSortField === "tsDelta" && (rankingSortDesc ? "↓" : "↑")}
+                  </th>
+                  <th className="hidden md:table-cell py-2.5 px-3 text-right">
+                    TS% (ANBA vs NBA)
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#262c3b]/60 text-xs">
+                {rankedLeaguePlayers.map((p, index) => {
+                  const isSelected = p.id === selectedPlayer.id;
+                  return (
+                    <tr
+                      key={p.id}
+                      onClick={() => {
+                        handleSelectPlayer(p.id);
+                      }}
+                      className={`cursor-pointer transition-colors ${
+                        isSelected
+                          ? "bg-[#16233a]"
+                          : "hover:bg-[#161a23]"
+                      }`}
+                    >
+                      <td className="py-2.5 px-2.5 sm:px-3 text-center font-mono text-[11px] text-[#8b9099]">
+                        {index + 1}
+                      </td>
+                      <td className="py-2.5 px-2 sm:px-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#161a23] text-[#8b9099] border border-[#262c3b] shrink-0">
+                            {p.pos}
+                          </span>
+                          <div className="truncate">
+                            <p className="font-semibold text-[#eceef2] truncate">
+                              {p.name}
+                            </p>
+                            <p className="text-[10px] text-[#8b9099] truncate">
+                              <span className="text-[#4d84e2]">{p.anbaTeam}</span>{" "}
+                              /{" "}
+                              <span className="text-[#c9a84c]">{p.nbaTeam}</span>
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-2 sm:px-3 text-right font-mono font-bold">
+                        <span
+                          className={`px-1.5 py-0.5 rounded ${
+                            p.similarityScore >= 80
+                              ? "bg-[#5ee89a]/15 text-[#5ee89a]"
+                              : p.similarityScore >= 55
+                              ? "bg-[#4d84e2]/15 text-[#7ab3ff]"
+                              : "bg-[#f6c453]/15 text-[#f6c453]"
+                          }`}
+                        >
+                          {p.similarityScore.toFixed(1)}%
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-2 sm:px-3 text-right font-mono font-bold">
+                        <span
+                          className={
+                            p.deltas.pts > 0.5
+                              ? "text-[#5ee89a]"
+                              : p.deltas.pts < -0.5
+                              ? "text-[#f85149]"
+                              : "text-[#eceef2]"
+                          }
+                        >
+                          {formatDelta(p.deltas.pts, 1)}
+                        </span>
+                      </td>
+                      <td className="hidden md:table-cell py-2.5 px-3 text-right font-mono text-[11px] text-[#8b9099]">
+                        <span className="text-[#4d84e2] font-semibold">
+                          {p.anba.pts.toFixed(1)}
+                        </span>{" "}
+                        vs{" "}
+                        <span className="text-[#c9a84c] font-semibold">
+                          {p.nba.pts.toFixed(1)}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-2.5 sm:px-3 text-right font-mono font-bold">
+                        <span
+                          className={
+                            p.deltas.tsPct > 0.5
+                              ? "text-[#5ee89a]"
+                              : p.deltas.tsPct < -0.5
+                              ? "text-[#f85149]"
+                              : "text-[#eceef2]"
+                          }
+                        >
+                          {formatDelta(p.deltas.tsPct, 1, "%")}
+                        </span>
+                      </td>
+                      <td className="hidden md:table-cell py-2.5 px-3 text-right font-mono text-[11px] text-[#8b9099]">
+                        <span className="text-[#4d84e2] font-semibold">
+                          {p.anba.tsPct.toFixed(1)}%
+                        </span>{" "}
+                        vs{" "}
+                        <span className="text-[#c9a84c] font-semibold">
+                          {p.nba.tsPct.toFixed(1)}%
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Main Comparison Grid: Diverging Bars + Radar & Shooting Splits */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
