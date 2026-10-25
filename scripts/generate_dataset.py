@@ -474,24 +474,18 @@ def compute_cross_player_clones(players: List[Dict[str, Any]], min_mp_threshold:
     if len(pool) < 10:
         pool = players
 
-    features = ["mp", "pts36", "trb36", "ast36", "stl36", "blk36", "tsPct", "fg3aRate", "ftaRate", "gameScore"]
-    weights = np.array([0.08, 0.20, 0.14, 0.15, 0.07, 0.07, 0.10, 0.08, 0.04, 0.07])
+    # Usar exactamente la misma fórmula de las 8 métricas por partido que el % de Similitud Global
+    features = ["pts", "trb", "ast", "tsPct", "fg3", "stl", "blk", "mp"]
+    scales = np.array([8.0, 4.0, 3.2, 12.0, 1.8, 1.0, 1.2, 10.0], dtype=float)
+    weights = np.array([0.25, 0.18, 0.18, 0.12, 0.09, 0.06, 0.06, 0.06], dtype=float)
 
     nba_matrix = np.array([[p["nba"][f] for f in features] for p in pool], dtype=float)
     anba_matrix = np.array([[p["anba"][f] for f in features] for p in pool], dtype=float)
 
-    means = np.mean(nba_matrix, axis=0)
-    stds = np.std(nba_matrix, axis=0)
-    stds[stds == 0] = 1.0
-
-    nba_z = (nba_matrix - means) / stds
-    anba_z = (anba_matrix - means) / stds
-
     for p in players:
         p_anba_vec = np.array([p["anba"][f] for f in features], dtype=float)
-        p_anba_z = (p_anba_vec - means) / stds
-        diffs_to_nba = np.sqrt(np.sum(weights * ((nba_z - p_anba_z) ** 2), axis=1))
-        sims_to_nba = 100.0 * np.exp(-0.55 * diffs_to_nba)
+        diffs_to_nba = np.sum(weights * (np.abs(nba_matrix - p_anba_vec) / scales), axis=1)
+        sims_to_nba = np.clip(100.0 * np.exp(-0.48 * diffs_to_nba), 5.0, 99.5)
 
         order_nba = np.argsort(-sims_to_nba)
         nba_clones = []
@@ -516,9 +510,8 @@ def compute_cross_player_clones(players: List[Dict[str, Any]], min_mp_threshold:
                 break
 
         p_nba_vec = np.array([p["nba"][f] for f in features], dtype=float)
-        p_nba_z = (p_nba_vec - means) / stds
-        diffs_to_anba = np.sqrt(np.sum(weights * ((anba_z - p_nba_z) ** 2), axis=1))
-        sims_to_anba = 100.0 * np.exp(-0.55 * diffs_to_anba)
+        diffs_to_anba = np.sum(weights * (np.abs(anba_matrix - p_nba_vec) / scales), axis=1)
+        sims_to_anba = np.clip(100.0 * np.exp(-0.48 * diffs_to_anba), 5.0, 99.5)
 
         order_anba = np.argsort(-sims_to_anba)
         anba_clones = []

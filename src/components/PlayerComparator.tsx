@@ -498,12 +498,24 @@ export default function PlayerComparator({
                 <Sparkles className="w-3.5 h-3.5 text-[#c9a84c]" />
                 En ANBA rinde como:
               </span>
-              <span className="font-semibold text-[#eceef2] bg-[#0f1219] px-2.5 py-1 rounded-md border border-[#262c3b] truncate">
-                {topClone.name}{" "}
-                <span className="text-[#5ee89a] font-mono text-[11px]">
-                  ({topClone.similarity}% sim)
+              {selectedPlayer.similarityScore >= topClone.similarity ? (
+                <span className="font-semibold text-[#eceef2] bg-[#0f1219] px-2.5 py-1 rounded-md border border-[#262c3b] truncate">
+                  Él mismo{" "}
+                  <span className="text-[#5ee89a] font-mono text-[11px]">
+                    ({selectedPlayer.similarityScore.toFixed(1)}%)
+                  </span>{" "}
+                  <span className="text-[#8b9099] font-normal text-[11px]">
+                    · 2º {topClone.name} ({topClone.similarity.toFixed(1)}%)
+                  </span>
                 </span>
-              </span>
+              ) : (
+                <span className="font-semibold text-[#eceef2] bg-[#0f1219] px-2.5 py-1 rounded-md border border-[#262c3b] truncate">
+                  {topClone.name}{" "}
+                  <span className="text-[#5ee89a] font-mono text-[11px]">
+                    ({topClone.similarity.toFixed(1)}% sim)
+                  </span>
+                </span>
+              )}
             </div>
           )}
         </div>
