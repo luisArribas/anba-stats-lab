@@ -1128,6 +1128,38 @@ export default function PlayerComparator({
             </div>
           </div>
 
+          {/* Leyenda explicativa de signos Positivo (+) / Negativo (-) para USG% y Diferenciales */}
+          <div className="w-full px-3 py-2 rounded-lg bg-[#0f1219] border border-[#262c3b] flex flex-wrap items-center justify-between gap-2 text-[11px]">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <span className="font-bold uppercase tracking-wider text-[#8b9099]">
+                Cómo leer el diferencial (Δ = ANBA − NBA):
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#5ee89a]/10 border border-[#5ee89a]/30 text-[#5ee89a] font-medium">
+                <span className="font-mono font-bold">+ Positivo</span>
+                <span>=</span>
+                <span>
+                  {rankingSortField === "usgDelta"
+                    ? "Más USG% (mayor uso en ataque) en ANBA 2K que en la NBA"
+                    : "Mayor valor en ANBA 2K que en la NBA Real"}
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#f85149]/10 border border-[#f85149]/30 text-[#f85149] font-medium">
+                <span className="font-mono font-bold">− Negativo</span>
+                <span>=</span>
+                <span>
+                  {rankingSortField === "usgDelta"
+                    ? "Menos USG% (menor uso en ataque) en ANBA 2K que en la NBA"
+                    : "Menor valor en ANBA 2K que en la NBA Real"}
+                </span>
+              </span>
+            </div>
+            <span className="text-[10px] text-[#8b9099] font-mono">
+              Desglose:{" "}
+              <strong className="text-[#4d84e2]">Azul = ANBA 2K</strong> vs{" "}
+              <strong className="text-[#c9a84c]">Dorado = NBA Real</strong>
+            </span>
+          </div>
+
           {/* Tabla Scrollable */}
           <div className="max-h-96 overflow-y-auto rounded-lg border border-[#262c3b] bg-[#0f1219]">
             <table className="w-full text-left border-collapse">
@@ -1172,11 +1204,17 @@ export default function PlayerComparator({
                   </th>
                   <th
                     onClick={() => handleOpenRanking("usgDelta")}
-                    className={`hidden sm:table-cell py-2.5 px-2.5 sm:px-3 text-right cursor-pointer hover:text-[#eceef2] ${
+                    className={`py-2.5 px-2.5 sm:px-3 text-right cursor-pointer hover:text-[#eceef2] ${
                       rankingSortField === "usgDelta" ? "text-[#4d84e2]" : ""
                     }`}
+                    title="Diferencia de Uso Ofensivo (ANBA 2K menos NBA Real). Positivo (+) = más USG% en ANBA; Negativo (−) = más USG% en NBA."
                   >
-                    Dif. USG% {rankingSortField === "usgDelta" && (rankingSortDesc ? "↓" : "↑")}
+                    <div>
+                      Dif. USG% {rankingSortField === "usgDelta" && (rankingSortDesc ? "↓" : "↑")}
+                    </div>
+                    <div className="text-[9px] font-normal normal-case tracking-normal text-[#8b9099]">
+                      (+ más ANBA · − más NBA)
+                    </div>
                   </th>
                   <th
                     onClick={() => handleOpenRanking("ws48Delta")}
@@ -1284,18 +1322,46 @@ export default function PlayerComparator({
                           {p.nba.per.toFixed(1)}
                         </span>
                       </td>
-                      <td className="hidden sm:table-cell py-2.5 px-2.5 sm:px-3 text-right font-mono font-bold">
-                        <span
-                          className={
-                            p.deltas.usgPct > 0.5
-                              ? "text-[#5ee89a]"
-                              : p.deltas.usgPct < -0.5
-                              ? "text-[#f85149]"
-                              : "text-[#eceef2]"
-                          }
-                        >
-                          {formatDelta(p.deltas.usgPct, 1, "%")}
-                        </span>
+                      <td className="py-2.5 px-2.5 sm:px-3 text-right font-mono">
+                        <div className="flex flex-col items-end leading-tight">
+                          <div className="flex items-center gap-1">
+                            <span
+                              className={`font-bold ${
+                                p.deltas.usgPct > 0.5
+                                  ? "text-[#5ee89a]"
+                                  : p.deltas.usgPct < -0.5
+                                  ? "text-[#f85149]"
+                                  : "text-[#eceef2]"
+                              }`}
+                            >
+                              {formatDelta(p.deltas.usgPct, 1, "%")}
+                            </span>
+                            <span
+                              className={`text-[9px] font-sans font-semibold px-1 py-0.2 rounded ${
+                                p.deltas.usgPct > 0.5
+                                  ? "bg-[#5ee89a]/15 text-[#5ee89a]"
+                                  : p.deltas.usgPct < -0.5
+                                  ? "bg-[#f85149]/15 text-[#f85149]"
+                                  : "bg-[#262c3b] text-[#8b9099]"
+                              }`}
+                            >
+                              {p.deltas.usgPct > 0.5
+                                ? "+ANBA"
+                                : p.deltas.usgPct < -0.5
+                                ? "+NBA"
+                                : "Igual"}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-[#8b9099] mt-0.5">
+                            <span className="text-[#4d84e2] font-semibold">
+                              {p.anba.usgPct.toFixed(1)}%
+                            </span>{" "}
+                            vs{" "}
+                            <span className="text-[#c9a84c] font-semibold">
+                              {p.nba.usgPct.toFixed(1)}%
+                            </span>
+                          </span>
+                        </div>
                       </td>
                       <td className="hidden lg:table-cell py-2.5 px-3 text-right font-mono font-bold">
                         <span
