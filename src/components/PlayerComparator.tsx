@@ -37,7 +37,114 @@ import {
   X,
 } from "lucide-react";
 
-type RankingSortField = "similarity" | "ptsDelta" | "tsDelta";
+type RankingSortField =
+  | "similarity"
+  | "ptsDelta"
+  | "tsDelta"
+  | "perDelta"
+  | "usgDelta"
+  | "ws48Delta";
+
+type StatComparisonMode = "per_game" | "advanced" | "per_36";
+
+const ADVANCED_GLOSSARY: { key: string; label: string; definition: string }[] = [
+  {
+    key: "TS%",
+    label: "TS% (True Shooting %)",
+    definition:
+      "Acierto real: puntos por intento de tiro, ponderando tiros de 2, triples y tiros libres.",
+  },
+  {
+    key: "3PAr",
+    label: "3PAr (Ratio de Triples)",
+    definition:
+      "Intentos de triple por cada intento de tiro de campo (3PA / FGA).",
+  },
+  {
+    key: "FTr",
+    label: "FTr (Ratio de Tiros Libres)",
+    definition:
+      "Intentos de tiro libre por cada intento de tiro de campo (FTA / FGA).",
+  },
+  {
+    key: "ORB%",
+    label: "ORB% (% Rebote Ofensivo)",
+    definition:
+      "Porcentaje estimado de rebotes ofensivos disponibles que captura el jugador mientras está en pista.",
+  },
+  {
+    key: "DRB%",
+    label: "DRB% (% Rebote Defensivo)",
+    definition:
+      "Porcentaje estimado de rebotes defensivos disponibles que captura el jugador mientras está en pista.",
+  },
+  {
+    key: "TRB%",
+    label: "TRB% (% Rebote Total)",
+    definition:
+      "Porcentaje estimado del total de rebotes disponibles capturados mientras está en pista.",
+  },
+  {
+    key: "AST%",
+    label: "AST% (% de Asistencias)",
+    definition:
+      "Porcentaje de canastas en juego de sus compañeros que son asistidas por el jugador mientras está en pista.",
+  },
+  {
+    key: "STL%",
+    label: "STL% (% de Robos)",
+    definition:
+      "Robos conseguidos por el jugador por cada 100 posesiones del equipo rival mientras está en pista.",
+  },
+  {
+    key: "BLK%",
+    label: "BLK% (% de Tapones)",
+    definition:
+      "Porcentaje de tiros de 2 puntos del rival que son taponados por el jugador mientras está en pista.",
+  },
+  {
+    key: "TOV%",
+    label: "TOV% (% de Pérdidas)",
+    definition:
+      "Pérdidas cometidas por cada 100 posesiones individuales finalizadas por el jugador.",
+  },
+  {
+    key: "USG%",
+    label: "USG% (Uso Ofensivo)",
+    definition:
+      "Porcentaje de jugadas ofensivas de su equipo que finaliza el jugador (tiros de campo, tiros libres o pérdidas) mientras está en pista.",
+  },
+  {
+    key: "PER",
+    label: "PER (Player Efficiency Rating)",
+    definition:
+      "Valoración de eficiencia de Hollinger (Basketball-Reference): resume toda la producción por minuto ajustada al ritmo (media de la liga = 15.0).",
+  },
+  {
+    key: "OWS",
+    label: "OWS (Offensive Win Shares)",
+    definition:
+      "Victorias ofensivas aportadas por los puntos producidos por encima del nivel marginal.",
+  },
+  {
+    key: "DWS",
+    label: "DWS (Defensive Win Shares)",
+    definition:
+      "Victorias defensivas aportadas según minutos, robos, tapones, rebotes defensivos y rating defensivo.",
+  },
+  {
+    key: "WS",
+    label: "WS (Win Shares Totales)",
+    definition:
+      "Victorias totales aportadas (WS = OWS + DWS). La suma de WS de una plantilla se aproxima al total de victorias del equipo.",
+  },
+  {
+    key: "WS/48",
+    label: "WS/48 (Win Shares por 48 min)",
+    definition:
+      "Victorias aportadas por cada 48 minutos en pista (tasa de impacto independiente del total de partidos; media de la liga ≈ 0.100).",
+  },
+];
 
 interface Props {
   players: PlayerComparison[];
@@ -59,8 +166,11 @@ export default function PlayerComparator({
   const [positionFilter, setPositionFilter] = useState<string>("ALL");
   const [showDropdown, setShowDropdown] = useState(false);
   const [showMethodology, setShowMethodology] = useState(false);
+  const [showAdvancedGlossary, setShowAdvancedGlossary] = useState(false);
+  const [statComparisonMode, setStatComparisonMode] =
+    useState<StatComparisonMode>("per_game");
 
-  // Estado para el Ranking Global al hacer clic en Similitud, Dif. Puntos o Dif. TS%
+  // Estado para el Ranking Global al hacer clic en Similitud, Dif. Puntos, Dif. TS% o Dif. PER
   const [showRankingPanel, setShowRankingPanel] = useState(false);
   const [rankingSortField, setRankingSortField] =
     useState<RankingSortField>("similarity");
@@ -106,9 +216,18 @@ export default function PlayerComparator({
         } else if (rankingSortField === "ptsDelta") {
           valA = a.deltas.pts;
           valB = b.deltas.pts;
-        } else {
+        } else if (rankingSortField === "tsDelta") {
           valA = a.deltas.tsPct;
           valB = b.deltas.tsPct;
+        } else if (rankingSortField === "perDelta") {
+          valA = a.deltas.per;
+          valB = b.deltas.per;
+        } else if (rankingSortField === "usgDelta") {
+          valA = a.deltas.usgPct;
+          valB = b.deltas.usgPct;
+        } else {
+          valA = a.deltas.ws48;
+          valB = b.deltas.ws48;
         }
         return rankingSortDesc ? valB - valA : valA - valB;
       });
@@ -221,75 +340,269 @@ export default function PlayerComparator({
     anba: number;
     nba: number;
     max: number;
+    decimals?: number;
     suffix?: string;
     invertColor?: boolean;
-  }[] = [
-    {
-      label: "Puntos por Partido (PTS)",
-      shortLabel: "PTS",
-      anba: selectedPlayer.anba.pts,
-      nba: selectedPlayer.nba.pts,
-      max: 38,
-    },
-    {
-      label: "Rebotes por Partido (REB)",
-      shortLabel: "REB",
-      anba: selectedPlayer.anba.trb,
-      nba: selectedPlayer.nba.trb,
-      max: 16,
-    },
-    {
-      label: "Asistencias por Partido (AST)",
-      shortLabel: "AST",
-      anba: selectedPlayer.anba.ast,
-      nba: selectedPlayer.nba.ast,
-      max: 13,
-    },
-    {
-      label: "Robos por Partido (STL)",
-      shortLabel: "STL",
-      anba: selectedPlayer.anba.stl,
-      nba: selectedPlayer.nba.stl,
-      max: 3.0,
-    },
-    {
-      label: "Tapones por Partido (BLK)",
-      shortLabel: "BLK",
-      anba: selectedPlayer.anba.blk,
-      nba: selectedPlayer.nba.blk,
-      max: 3.8,
-    },
-    {
-      label: "Triples Anotados (3PM)",
-      shortLabel: "3PM",
-      anba: selectedPlayer.anba.fg3,
-      nba: selectedPlayer.nba.fg3,
-      max: 5.5,
-    },
-    {
-      label: "Minutos por Partido (MIN)",
-      shortLabel: "MIN",
-      anba: selectedPlayer.anba.mp,
-      nba: selectedPlayer.nba.mp,
-      max: 40,
-    },
-    {
-      label: "Pérdidas por Partido (TOV)",
-      shortLabel: "TOV",
-      anba: selectedPlayer.anba.tov,
-      nba: selectedPlayer.nba.tov,
-      max: 5.5,
-      invertColor: true,
-    },
-    {
-      label: "True Shooting (TS%)",
-      shortLabel: "TS%",
-      anba: selectedPlayer.anba.tsPct,
-      nba: selectedPlayer.nba.tsPct,
-      max: 75,
-      suffix: "%",
-    },
-  ];
+  }[] =
+    statComparisonMode === "advanced"
+      ? [
+          {
+            label: "Eficiencia Hollinger (PER)",
+            shortLabel: "PER",
+            anba: selectedPlayer.anba.per,
+            nba: selectedPlayer.nba.per,
+            max: 35,
+            decimals: 1,
+          },
+          {
+            label: "True Shooting (TS%)",
+            shortLabel: "TS%",
+            anba: selectedPlayer.anba.tsPct,
+            nba: selectedPlayer.nba.tsPct,
+            max: 75,
+            decimals: 1,
+            suffix: "%",
+          },
+          {
+            label: "Uso Ofensivo (USG%)",
+            shortLabel: "USG%",
+            anba: selectedPlayer.anba.usgPct,
+            nba: selectedPlayer.nba.usgPct,
+            max: 40,
+            decimals: 1,
+            suffix: "%",
+          },
+          {
+            label: "Win Shares / 48m (WS/48)",
+            shortLabel: "WS/48",
+            anba: selectedPlayer.anba.ws48,
+            nba: selectedPlayer.nba.ws48,
+            max: 0.3,
+            decimals: 3,
+          },
+          {
+            label: "Win Shares Totales (WS)",
+            shortLabel: "WS",
+            anba: selectedPlayer.anba.ws,
+            nba: selectedPlayer.nba.ws,
+            max: 12,
+            decimals: 1,
+          },
+          {
+            label: "% de Asistencias (AST%)",
+            shortLabel: "AST%",
+            anba: selectedPlayer.anba.astPct,
+            nba: selectedPlayer.nba.astPct,
+            max: 45,
+            decimals: 1,
+            suffix: "%",
+          },
+          {
+            label: "% de Rebote Total (TRB%)",
+            shortLabel: "TRB%",
+            anba: selectedPlayer.anba.trbPct,
+            nba: selectedPlayer.nba.trbPct,
+            max: 25,
+            decimals: 1,
+            suffix: "%",
+          },
+          {
+            label: "% Rebote Ofensivo (ORB%)",
+            shortLabel: "ORB%",
+            anba: selectedPlayer.anba.orbPct,
+            nba: selectedPlayer.nba.orbPct,
+            max: 16,
+            decimals: 1,
+            suffix: "%",
+          },
+          {
+            label: "% Rebote Defensivo (DRB%)",
+            shortLabel: "DRB%",
+            anba: selectedPlayer.anba.drbPct,
+            nba: selectedPlayer.nba.drbPct,
+            max: 32,
+            decimals: 1,
+            suffix: "%",
+          },
+          {
+            label: "% de Robos (STL%)",
+            shortLabel: "STL%",
+            anba: selectedPlayer.anba.stlPct,
+            nba: selectedPlayer.nba.stlPct,
+            max: 4.5,
+            decimals: 1,
+            suffix: "%",
+          },
+          {
+            label: "% de Tapones (BLK%)",
+            shortLabel: "BLK%",
+            anba: selectedPlayer.anba.blkPct,
+            nba: selectedPlayer.nba.blkPct,
+            max: 7.5,
+            decimals: 1,
+            suffix: "%",
+          },
+          {
+            label: "% de Pérdidas (TOV%)",
+            shortLabel: "TOV%",
+            anba: selectedPlayer.anba.tovPct,
+            nba: selectedPlayer.nba.tovPct,
+            max: 25,
+            decimals: 1,
+            suffix: "%",
+            invertColor: true,
+          },
+          {
+            label: "Ratio de Triples (3PAr)",
+            shortLabel: "3PAr",
+            anba: selectedPlayer.anba.threePar,
+            nba: selectedPlayer.nba.threePar,
+            max: 0.85,
+            decimals: 3,
+          },
+          {
+            label: "Ratio Tiros Libres (FTr)",
+            shortLabel: "FTr",
+            anba: selectedPlayer.anba.ftr,
+            nba: selectedPlayer.nba.ftr,
+            max: 0.65,
+            decimals: 3,
+          },
+        ]
+      : statComparisonMode === "per_36"
+      ? [
+          {
+            label: "Puntos por 36 Min (PTS/36)",
+            shortLabel: "PTS/36",
+            anba: selectedPlayer.anba.pts36,
+            nba: selectedPlayer.nba.pts36,
+            max: 38,
+          },
+          {
+            label: "Rebotes por 36 Min (REB/36)",
+            shortLabel: "REB/36",
+            anba: selectedPlayer.anba.trb36,
+            nba: selectedPlayer.nba.trb36,
+            max: 18,
+          },
+          {
+            label: "Asistencias por 36 Min (AST/36)",
+            shortLabel: "AST/36",
+            anba: selectedPlayer.anba.ast36,
+            nba: selectedPlayer.nba.ast36,
+            max: 13,
+          },
+          {
+            label: "Robos por 36 Min (STL/36)",
+            shortLabel: "STL/36",
+            anba: selectedPlayer.anba.stl36,
+            nba: selectedPlayer.nba.stl36,
+            max: 3.5,
+          },
+          {
+            label: "Tapones por 36 Min (BLK/36)",
+            shortLabel: "BLK/36",
+            anba: selectedPlayer.anba.blk36,
+            nba: selectedPlayer.nba.blk36,
+            max: 4.2,
+          },
+          {
+            label: "Tiros Intentados / 36m (FGA/36)",
+            shortLabel: "FGA/36",
+            anba: selectedPlayer.anba.fga36,
+            nba: selectedPlayer.nba.fga36,
+            max: 28,
+          },
+          {
+            label: "Triples Intentados / 36m (3PA/36)",
+            shortLabel: "3PA/36",
+            anba: selectedPlayer.anba.fg3a36,
+            nba: selectedPlayer.nba.fg3a36,
+            max: 14,
+          },
+          {
+            label: "Pérdidas por 36 Min (TOV/36)",
+            shortLabel: "TOV/36",
+            anba: selectedPlayer.anba.tov36,
+            nba: selectedPlayer.nba.tov36,
+            max: 5.5,
+            invertColor: true,
+          },
+          {
+            label: "GameScore (Hollinger)",
+            shortLabel: "GmSc",
+            anba: selectedPlayer.anba.gameScore,
+            nba: selectedPlayer.nba.gameScore,
+            max: 30,
+          },
+        ]
+      : [
+          {
+            label: "Puntos por Partido (PTS)",
+            shortLabel: "PTS",
+            anba: selectedPlayer.anba.pts,
+            nba: selectedPlayer.nba.pts,
+            max: 38,
+          },
+          {
+            label: "Rebotes por Partido (REB)",
+            shortLabel: "REB",
+            anba: selectedPlayer.anba.trb,
+            nba: selectedPlayer.nba.trb,
+            max: 16,
+          },
+          {
+            label: "Asistencias por Partido (AST)",
+            shortLabel: "AST",
+            anba: selectedPlayer.anba.ast,
+            nba: selectedPlayer.nba.ast,
+            max: 13,
+          },
+          {
+            label: "Robos por Partido (STL)",
+            shortLabel: "STL",
+            anba: selectedPlayer.anba.stl,
+            nba: selectedPlayer.nba.stl,
+            max: 3.0,
+          },
+          {
+            label: "Tapones por Partido (BLK)",
+            shortLabel: "BLK",
+            anba: selectedPlayer.anba.blk,
+            nba: selectedPlayer.nba.blk,
+            max: 3.8,
+          },
+          {
+            label: "Triples Anotados (3PM)",
+            shortLabel: "3PM",
+            anba: selectedPlayer.anba.fg3,
+            nba: selectedPlayer.nba.fg3,
+            max: 5.5,
+          },
+          {
+            label: "Minutos por Partido (MIN)",
+            shortLabel: "MIN",
+            anba: selectedPlayer.anba.mp,
+            nba: selectedPlayer.nba.mp,
+            max: 40,
+          },
+          {
+            label: "Pérdidas por Partido (TOV)",
+            shortLabel: "TOV",
+            anba: selectedPlayer.anba.tov,
+            nba: selectedPlayer.nba.tov,
+            max: 5.5,
+            invertColor: true,
+          },
+          {
+            label: "True Shooting (TS%)",
+            shortLabel: "TS%",
+            anba: selectedPlayer.anba.tsPct,
+            nba: selectedPlayer.nba.tsPct,
+            max: 75,
+            suffix: "%",
+          },
+        ];
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -659,43 +972,59 @@ export default function PlayerComparator({
             </div>
           </button>
 
-          {/* Muestra de Partidos Temporada */}
-          <div className="bg-[#161a23] border border-[#262c3b] rounded-xl p-3.5 sm:p-4 flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099]">
-                Partidos {season}
+          {/* Diferencial PER (Clickable Ranking Trigger) */}
+          <button
+            type="button"
+            onClick={() => handleOpenRanking("perDelta")}
+            className={`bg-[#161a23] border rounded-xl p-3.5 sm:p-4 flex flex-col justify-between text-left transition-all group cursor-pointer ${
+              showRankingPanel &&
+              (rankingSortField === "perDelta" ||
+                rankingSortField === "usgDelta" ||
+                rankingSortField === "ws48Delta")
+                ? "border-[#4d84e2] bg-[#16233a]/40 shadow-md"
+                : "border-[#262c3b] hover:border-[#4d84e2]/60 hover:bg-[#16233a]/20"
+            }`}
+          >
+            <div className="flex items-center justify-between w-full">
+              <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099] group-hover:text-[#eceef2] transition-colors">
+                Dif. PER (Avanzada)
               </span>
               <Shield className="w-4 h-4 text-[#7ab3ff] shrink-0" />
             </div>
-            <div className="my-1.5 sm:my-2 flex items-baseline gap-1.5 font-mono">
-              <span className="text-xl sm:text-2xl font-black text-[#4d84e2]">
-                {selectedPlayer.anba.g}
+            <div className="my-1.5 sm:my-2 flex items-baseline gap-1.5">
+              <span
+                className={`text-2xl sm:text-3xl font-mono font-black ${
+                  selectedPlayer.deltas.per > 0.5
+                    ? "text-[#5ee89a]"
+                    : selectedPlayer.deltas.per < -0.5
+                    ? "text-[#f85149]"
+                    : "text-[#eceef2]"
+                }`}
+              >
+                {formatDelta(selectedPlayer.deltas.per, 1)}
               </span>
-              <span className="text-xs text-[#8b9099]">ANBA</span>
-              <span className="text-[#8b9099]">/</span>
-              <span className="text-xl sm:text-2xl font-black text-[#c9a84c]">
-                {selectedPlayer.nba.g}
-              </span>
-              <span className="text-xs text-[#8b9099]">NBA</span>
+              <span className="text-[10px] text-[#8b9099] font-mono">PER</span>
             </div>
-            <div className="text-[11px] text-[#8b9099] truncate">
-              {selectedPlayer.deltas.gameScore > 2.5 ? (
-                <span className="text-[#5ee89a] font-medium">
-                  ↑ Rinde más en ANBA
+            <div className="space-y-1 w-full">
+              <div className="text-[11px] text-[#8b9099] font-mono">
+                <span className="text-[#4d84e2] font-semibold">
+                  {selectedPlayer.anba.per.toFixed(1)}
+                </span>{" "}
+                vs{" "}
+                <span className="text-[#c9a84c] font-semibold">
+                  {selectedPlayer.nba.per.toFixed(1)}
                 </span>
-              ) : selectedPlayer.deltas.gameScore < -2.5 ? (
-                <span className="text-[#f85149] font-medium">
-                  ↓ Rinde menos en ANBA
-                </span>
-              ) : (
-                <span className="text-[#8b9099]">Rendimiento parejo</span>
-              )}
+              </div>
+              <div className="text-[10px] font-semibold text-[#4d84e2] flex items-center gap-1 pt-1 border-t border-[#262c3b]/70">
+                <ListOrdered className="w-3 h-3" />
+                <span>Ver ranking liga →</span>
+              </div>
             </div>
-          </div>
+          </button>
         </div>
       </div>
 
-      {/* Expandable League-Wide Ranking Table (Similitud / Dif. Puntos / Dif. TS%) */}
+      {/* Expandable League-Wide Ranking Table (Similitud / Dif. Puntos / Dif. TS% / Avanzadas) */}
       {showRankingPanel && (
         <div className="bg-[#161a23] border border-[#4d84e2]/50 rounded-xl p-4 sm:p-5 shadow-xl space-y-4">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-[#262c3b]">
@@ -726,11 +1055,14 @@ export default function PlayerComparator({
             {/* Controles de Ordenación y Filtros */}
             <div className="flex flex-wrap items-center gap-2">
               {/* Selector de Métrica */}
-              <div className="flex items-center bg-[#0f1219] p-1 rounded-lg border border-[#262c3b]">
+              <div className="flex flex-wrap items-center bg-[#0f1219] p-1 rounded-lg border border-[#262c3b] gap-0.5">
                 {[
                   { id: "similarity" as RankingSortField, label: "Similitud %" },
-                  { id: "ptsDelta" as RankingSortField, label: "Dif. Puntos" },
+                  { id: "ptsDelta" as RankingSortField, label: "Dif. PTS" },
                   { id: "tsDelta" as RankingSortField, label: "Dif. TS%" },
+                  { id: "perDelta" as RankingSortField, label: "Dif. PER" },
+                  { id: "usgDelta" as RankingSortField, label: "Dif. USG%" },
+                  { id: "ws48Delta" as RankingSortField, label: "Dif. WS/48" },
                 ].map((tab) => {
                   const active = rankingSortField === tab.id;
                   return (
@@ -819,9 +1151,6 @@ export default function PlayerComparator({
                   >
                     Dif. PTS {rankingSortField === "ptsDelta" && (rankingSortDesc ? "↓" : "↑")}
                   </th>
-                  <th className="hidden md:table-cell py-2.5 px-3 text-right">
-                    PTS (ANBA vs NBA)
-                  </th>
                   <th
                     onClick={() => handleOpenRanking("tsDelta")}
                     className={`py-2.5 px-2.5 sm:px-3 text-right cursor-pointer hover:text-[#eceef2] ${
@@ -830,8 +1159,32 @@ export default function PlayerComparator({
                   >
                     Dif. TS% {rankingSortField === "tsDelta" && (rankingSortDesc ? "↓" : "↑")}
                   </th>
+                  <th
+                    onClick={() => handleOpenRanking("perDelta")}
+                    className={`py-2.5 px-2.5 sm:px-3 text-right cursor-pointer hover:text-[#eceef2] ${
+                      rankingSortField === "perDelta" ? "text-[#4d84e2]" : ""
+                    }`}
+                  >
+                    Dif. PER {rankingSortField === "perDelta" && (rankingSortDesc ? "↓" : "↑")}
+                  </th>
                   <th className="hidden md:table-cell py-2.5 px-3 text-right">
-                    TS% (ANBA vs NBA)
+                    PER (ANBA vs NBA)
+                  </th>
+                  <th
+                    onClick={() => handleOpenRanking("usgDelta")}
+                    className={`hidden sm:table-cell py-2.5 px-2.5 sm:px-3 text-right cursor-pointer hover:text-[#eceef2] ${
+                      rankingSortField === "usgDelta" ? "text-[#4d84e2]" : ""
+                    }`}
+                  >
+                    Dif. USG% {rankingSortField === "usgDelta" && (rankingSortDesc ? "↓" : "↑")}
+                  </th>
+                  <th
+                    onClick={() => handleOpenRanking("ws48Delta")}
+                    className={`hidden lg:table-cell py-2.5 px-3 text-right cursor-pointer hover:text-[#eceef2] ${
+                      rankingSortField === "ws48Delta" ? "text-[#4d84e2]" : ""
+                    }`}
+                  >
+                    Dif. WS/48 {rankingSortField === "ws48Delta" && (rankingSortDesc ? "↓" : "↑")}
                   </th>
                 </tr>
               </thead>
@@ -896,15 +1249,6 @@ export default function PlayerComparator({
                           {formatDelta(p.deltas.pts, 1)}
                         </span>
                       </td>
-                      <td className="hidden md:table-cell py-2.5 px-3 text-right font-mono text-[11px] text-[#8b9099]">
-                        <span className="text-[#4d84e2] font-semibold">
-                          {p.anba.pts.toFixed(1)}
-                        </span>{" "}
-                        vs{" "}
-                        <span className="text-[#c9a84c] font-semibold">
-                          {p.nba.pts.toFixed(1)}
-                        </span>
-                      </td>
                       <td className="py-2.5 px-2.5 sm:px-3 text-right font-mono font-bold">
                         <span
                           className={
@@ -918,13 +1262,52 @@ export default function PlayerComparator({
                           {formatDelta(p.deltas.tsPct, 1, "%")}
                         </span>
                       </td>
+                      <td className="py-2.5 px-2.5 sm:px-3 text-right font-mono font-bold">
+                        <span
+                          className={
+                            p.deltas.per > 0.5
+                              ? "text-[#5ee89a]"
+                              : p.deltas.per < -0.5
+                              ? "text-[#f85149]"
+                              : "text-[#eceef2]"
+                          }
+                        >
+                          {formatDelta(p.deltas.per, 1)}
+                        </span>
+                      </td>
                       <td className="hidden md:table-cell py-2.5 px-3 text-right font-mono text-[11px] text-[#8b9099]">
                         <span className="text-[#4d84e2] font-semibold">
-                          {p.anba.tsPct.toFixed(1)}%
+                          {p.anba.per.toFixed(1)}
                         </span>{" "}
                         vs{" "}
                         <span className="text-[#c9a84c] font-semibold">
-                          {p.nba.tsPct.toFixed(1)}%
+                          {p.nba.per.toFixed(1)}
+                        </span>
+                      </td>
+                      <td className="hidden sm:table-cell py-2.5 px-2.5 sm:px-3 text-right font-mono font-bold">
+                        <span
+                          className={
+                            p.deltas.usgPct > 0.5
+                              ? "text-[#5ee89a]"
+                              : p.deltas.usgPct < -0.5
+                              ? "text-[#f85149]"
+                              : "text-[#eceef2]"
+                          }
+                        >
+                          {formatDelta(p.deltas.usgPct, 1, "%")}
+                        </span>
+                      </td>
+                      <td className="hidden lg:table-cell py-2.5 px-3 text-right font-mono font-bold">
+                        <span
+                          className={
+                            p.deltas.ws48 > 0.01
+                              ? "text-[#5ee89a]"
+                              : p.deltas.ws48 < -0.01
+                              ? "text-[#f85149]"
+                              : "text-[#eceef2]"
+                          }
+                        >
+                          {formatDelta(p.deltas.ws48, 3)}
                         </span>
                       </td>
                     </tr>
@@ -940,34 +1323,76 @@ export default function PlayerComparator({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
         {/* Left: Head-to-Head Broadcast Stat Comparison Bars */}
         <div className="lg:col-span-7 bg-[#161a23] border border-[#262c3b] rounded-xl p-4 sm:p-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 sm:mb-5 pb-3 border-b border-[#262c3b]">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-5 pb-3 border-b border-[#262c3b]">
             <div>
               <h3 className="text-sm font-bold text-[#eceef2] uppercase tracking-wider">
-                Cara a Cara Estadístico (Por Partido)
+                Cara a Cara Estadístico (
+                {statComparisonMode === "per_game"
+                  ? "Por Partido"
+                  : statComparisonMode === "advanced"
+                  ? "Avanzadas"
+                  : "Por 36 Min"}
+                )
               </h3>
               <p className="text-xs text-[#8b9099] mt-0.5">
                 Comparativa directa ANBA 2K vs NBA Real ({season})
               </p>
             </div>
-            <div className="flex items-center gap-4 text-xs font-semibold">
-              <span className="flex items-center gap-1.5 text-[#4d84e2]">
-                <span className="w-2.5 h-2.5 rounded-sm bg-[#4d84e2]" />
-                ANBA 2K
-              </span>
-              <span className="flex items-center gap-1.5 text-[#c9a84c]">
-                <span className="w-2.5 h-2.5 rounded-sm bg-[#c9a84c]" />
-                NBA Real
-              </span>
+
+            <div className="flex flex-wrap items-center gap-2.5 justify-between sm:justify-end">
+              {/* Selector de Modo (Por Partido / Avanzadas / Por 36m) idéntico a anba2k.es */}
+              <div className="flex items-center bg-[#0f1219] p-1 rounded-lg border border-[#262c3b]">
+                {[
+                  { id: "per_game" as StatComparisonMode, label: "Por partido" },
+                  { id: "advanced" as StatComparisonMode, label: "Avanzadas" },
+                  { id: "per_36" as StatComparisonMode, label: "Por 36 min" },
+                ].map((modeTab) => {
+                  const active = statComparisonMode === modeTab.id;
+                  return (
+                    <button
+                      key={modeTab.id}
+                      type="button"
+                      onClick={() => setStatComparisonMode(modeTab.id)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
+                        active
+                          ? "bg-[#4d84e2] text-white shadow-sm"
+                          : "text-[#8b9099] hover:text-[#eceef2]"
+                      }`}
+                    >
+                      {modeTab.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-3 text-xs font-semibold">
+                <span className="flex items-center gap-1.5 text-[#4d84e2]">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-[#4d84e2]" />
+                  ANBA 2K
+                </span>
+                <span className="flex items-center gap-1.5 text-[#c9a84c]">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-[#c9a84c]" />
+                  NBA Real
+                </span>
+              </div>
             </div>
           </div>
 
           <div className="space-y-3.5 sm:space-y-4">
             {statRows.map((item) => {
+              const dec = item.decimals ?? 1;
+              const thresh = dec === 3 ? 0.015 : 0.2;
               const diff = item.anba - item.nba;
-              const anbaPct = Math.min(100, (item.anba / item.max) * 100);
-              const nbaPct = Math.min(100, (item.nba / item.max) * 100);
-              const isPositive = item.invertColor ? diff < -0.2 : diff > 0.2;
-              const isNegative = item.invertColor ? diff > 0.2 : diff < -0.2;
+              const anbaPct = Math.max(
+                0,
+                Math.min(100, (Math.max(0, item.anba) / item.max) * 100)
+              );
+              const nbaPct = Math.max(
+                0,
+                Math.min(100, (Math.max(0, item.nba) / item.max) * 100)
+              );
+              const isPositive = item.invertColor ? diff < -thresh : diff > thresh;
+              const isNegative = item.invertColor ? diff > thresh : diff < -thresh;
 
               const diffBadgeClass = isPositive
                 ? "bg-[#5ee89a]/15 text-[#5ee89a] border border-[#5ee89a]/30"
@@ -988,14 +1413,14 @@ export default function PlayerComparator({
                     <span
                       className={`inline-flex items-center gap-0.5 text-[11px] font-mono font-bold px-1.5 py-0.5 rounded ${diffBadgeClass}`}
                     >
-                      {diff > 0.1 ? (
+                      {diff > thresh * 0.5 ? (
                         <ArrowUpRight className="w-3 h-3" />
-                      ) : diff < -0.1 ? (
+                      ) : diff < -thresh * 0.5 ? (
                         <ArrowDownRight className="w-3 h-3" />
                       ) : (
                         <Minus className="w-3 h-3" />
                       )}
-                      {formatDelta(diff, 1, item.suffix || "")}
+                      {formatDelta(diff, dec, item.suffix || "")}
                     </span>
                   </div>
 
@@ -1009,7 +1434,7 @@ export default function PlayerComparator({
                     {/* ANBA Value + Right-Aligned Bar */}
                     <div className="col-span-6 sm:col-span-3 flex items-center justify-end gap-2">
                       <span className="font-mono text-xs font-bold text-[#4d84e2] shrink-0">
-                        {item.anba.toFixed(1)}
+                        {item.anba.toFixed(dec)}
                         {item.suffix || ""}
                       </span>
                       <div className="w-full bg-[#0f1219] h-2.5 rounded-l-full overflow-hidden flex justify-end border border-[#262c3b]">
@@ -1029,7 +1454,7 @@ export default function PlayerComparator({
                         />
                       </div>
                       <span className="font-mono text-xs font-bold text-[#c9a84c] shrink-0">
-                        {item.nba.toFixed(1)}
+                        {item.nba.toFixed(dec)}
                         {item.suffix || ""}
                       </span>
                     </div>
@@ -1039,14 +1464,14 @@ export default function PlayerComparator({
                       <span
                         className={`inline-flex items-center gap-0.5 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded ${diffBadgeClass}`}
                       >
-                        {diff > 0.1 ? (
+                        {diff > thresh * 0.5 ? (
                           <ArrowUpRight className="w-3 h-3" />
-                        ) : diff < -0.1 ? (
+                        ) : diff < -thresh * 0.5 ? (
                           <ArrowDownRight className="w-3 h-3" />
                         ) : (
                           <Minus className="w-3 h-3" />
                         )}
-                        {formatDelta(diff, 1)}
+                        {formatDelta(diff, dec)}
                       </span>
                     </div>
                   </div>
@@ -1177,6 +1602,450 @@ export default function PlayerComparator({
               </ResponsiveContainer>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Nueva Sección Oficial: Estadísticas Avanzadas (ANBA 2K vs NBA Real) */}
+      <div className="bg-[#161a23] border border-[#262c3b] rounded-xl p-4 sm:p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#262c3b]">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-[#16233a] text-[#4d84e2] border border-[#4d84e2]/30">
+                Nuevo en ANBA 2K
+              </span>
+              <h3 className="text-sm font-bold text-[#eceef2] uppercase tracking-wider">
+                Estadísticas Avanzadas Completas (ANBA 2K vs NBA Real)
+              </h3>
+            </div>
+            <p className="text-xs text-[#8b9099] mt-1">
+              Las 16 métricas avanzadas de la pestaña{" "}
+              <strong className="text-[#eceef2]">Avanzadas</strong> de{" "}
+              <span className="text-[#4d84e2]">anba2k.es</span> comparadas con
+              sus equivalentes oficiales de la{" "}
+              <span className="text-[#c9a84c]">NBA (Basketball-Reference)</span>
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setShowAdvancedGlossary((prev) => !prev)}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                showAdvancedGlossary
+                  ? "border-[#4d84e2] bg-[#16233a] text-[#eceef2]"
+                  : "border-[#262c3b] bg-[#0f1219] text-[#8b9099] hover:text-[#eceef2]"
+              }`}
+            >
+              <Info className="w-3.5 h-3.5 text-[#4d84e2]" />
+              <span>Glosario Avanzadas</span>
+              {showAdvancedGlossary ? (
+                <ChevronUp className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Desplegable del Glosario Oficial ANBA */}
+        {showAdvancedGlossary && (
+          <div className="bg-[#0f1219] border border-[#262c3b] rounded-xl p-3.5 sm:p-4">
+            <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-[#262c3b]">
+              <span className="text-xs font-bold uppercase tracking-wider text-[#eceef2]">
+                Glosario Oficial de Estadísticas Avanzadas (ANBA2K / Basketball-Reference)
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAdvancedGlossary(false)}
+                className="text-xs text-[#8b9099] hover:text-[#eceef2]"
+              >
+                Cerrar ✕
+              </button>
+            </div>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+              {ADVANCED_GLOSSARY.map((g) => (
+                <div
+                  key={g.key}
+                  className="bg-[#161a23] border border-[#262c3b]/80 rounded-lg p-2.5"
+                >
+                  <dt className="font-mono font-bold text-[#7ab3ff] text-[11px]">
+                    {g.label}
+                  </dt>
+                  <dd className="text-[#8b9099] text-[11px] mt-1 leading-relaxed">
+                    {g.definition}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        )}
+
+        {/* Tabla Horizontal Exacta a la vista "Avanzadas" de anba2k.es */}
+        <div className="overflow-x-auto rounded-xl border border-[#262c3b] bg-[#0f1219]">
+          <table className="w-full text-center text-xs border-collapse tabular-nums">
+            <thead>
+              <tr className="border-b border-[#262c3b] bg-[#161a23] text-[10px] font-bold uppercase tracking-[0.1em] text-[#8b9099]">
+                <th className="sticky left-0 z-10 bg-[#161a23] px-3.5 py-2.5 text-left min-w-[130px]">
+                  Competición
+                </th>
+                <th className="px-2.5 py-2.5" title="Partidos jugados">
+                  G
+                </th>
+                <th className="px-2.5 py-2.5" title="Minutos totales jugados">
+                  MIN
+                </th>
+                <th className="px-2.5 py-2.5" title="True Shooting % (Acierto real)">
+                  TS%
+                </th>
+                <th className="px-2.5 py-2.5" title="Ratio de intentos de triple (3PA/FGA)">
+                  3PAr
+                </th>
+                <th className="px-2.5 py-2.5" title="Ratio de tiros libres (FTA/FGA)">
+                  FTr
+                </th>
+                <th className="px-2.5 py-2.5" title="% de Rebote Ofensivo">
+                  ORB%
+                </th>
+                <th className="px-2.5 py-2.5" title="% de Rebote Defensivo">
+                  DRB%
+                </th>
+                <th className="px-2.5 py-2.5" title="% de Rebote Total">
+                  TRB%
+                </th>
+                <th className="px-2.5 py-2.5" title="% de Asistencias">
+                  AST%
+                </th>
+                <th className="px-2.5 py-2.5" title="% de Robos">
+                  STL%
+                </th>
+                <th className="px-2.5 py-2.5" title="% de Tapones">
+                  BLK%
+                </th>
+                <th className="px-2.5 py-2.5" title="% de Pérdidas">
+                  TOV%
+                </th>
+                <th className="px-2.5 py-2.5" title="% de Uso Ofensivo">
+                  USG%
+                </th>
+                <th className="px-2.5 py-2.5 text-[#7ab3ff]" title="Player Efficiency Rating (Hollinger)">
+                  PER
+                </th>
+                <th className="px-2.5 py-2.5" title="Offensive Win Shares">
+                  OWS
+                </th>
+                <th className="px-2.5 py-2.5" title="Defensive Win Shares">
+                  DWS
+                </th>
+                <th className="px-2.5 py-2.5" title="Win Shares Totales">
+                  WS
+                </th>
+                <th className="px-2.5 py-2.5 text-[#5ee89a]" title="Win Shares por 48 minutos">
+                  WS/48
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#262c3b]/70 font-mono">
+              {/* Fila 1: ANBA 2K */}
+              <tr className="hover:bg-[#161a23]/60 transition-colors">
+                <td className="sticky left-0 z-10 bg-[#0f1219] px-3.5 py-2.5 text-left font-sans font-bold text-[#4d84e2] flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#4d84e2]" />
+                  ANBA 2K ({selectedPlayer.anbaTeam})
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.anba.g}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#8b9099]">
+                  {selectedPlayer.anba.totalMp}
+                </td>
+                <td className="px-2.5 py-2.5 font-semibold text-[#4d84e2]">
+                  {selectedPlayer.anba.tsPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.anba.threePar.toFixed(3)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.anba.ftr.toFixed(3)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.anba.orbPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.anba.drbPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
+                  {selectedPlayer.anba.trbPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
+                  {selectedPlayer.anba.astPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.anba.stlPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.anba.blkPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.anba.tovPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 font-semibold text-[#4d84e2]">
+                  {selectedPlayer.anba.usgPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 font-bold text-[#4d84e2] bg-[#16233a]/30">
+                  {selectedPlayer.anba.per.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.anba.ows.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.anba.dws.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
+                  {selectedPlayer.anba.ws.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 font-bold text-[#4d84e2] bg-[#16233a]/30">
+                  {selectedPlayer.anba.ws48.toFixed(3)}
+                </td>
+              </tr>
+
+              {/* Fila 2: NBA Real */}
+              <tr className="hover:bg-[#161a23]/60 transition-colors">
+                <td className="sticky left-0 z-10 bg-[#0f1219] px-3.5 py-2.5 text-left font-sans font-bold text-[#c9a84c] flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#c9a84c]" />
+                  NBA Real ({selectedPlayer.nbaTeam})
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.nba.g}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#8b9099]">
+                  {selectedPlayer.nba.totalMp}
+                </td>
+                <td className="px-2.5 py-2.5 font-semibold text-[#c9a84c]">
+                  {selectedPlayer.nba.tsPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.nba.threePar.toFixed(3)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.nba.ftr.toFixed(3)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.nba.orbPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.nba.drbPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
+                  {selectedPlayer.nba.trbPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
+                  {selectedPlayer.nba.astPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.nba.stlPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.nba.blkPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.nba.tovPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 font-semibold text-[#c9a84c]">
+                  {selectedPlayer.nba.usgPct.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 font-bold text-[#c9a84c] bg-[#c9a84c]/10">
+                  {selectedPlayer.nba.per.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.nba.ows.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {selectedPlayer.nba.dws.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
+                  {selectedPlayer.nba.ws.toFixed(1)}
+                </td>
+                <td className="px-2.5 py-2.5 font-bold text-[#c9a84c] bg-[#c9a84c]/10">
+                  {selectedPlayer.nba.ws48.toFixed(3)}
+                </td>
+              </tr>
+
+              {/* Fila 3: Diferencial (ANBA - NBA) */}
+              <tr className="bg-[#161a23]/80 font-bold">
+                <td className="sticky left-0 z-10 bg-[#161a23] px-3.5 py-2.5 text-left font-sans text-[11px] uppercase tracking-wider text-[#8b9099]">
+                  Diferencial (Δ)
+                </td>
+                <td className="px-2.5 py-2.5 text-[#8b9099]">
+                  {formatDelta(selectedPlayer.anba.g - selectedPlayer.nba.g, 0)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#8b9099]">
+                  {formatDelta(
+                    selectedPlayer.anba.totalMp - selectedPlayer.nba.totalMp,
+                    0
+                  )}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.tsPct > 0.5
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.tsPct < -0.5
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.tsPct, 1)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {formatDelta(selectedPlayer.deltas.threePar, 3)}
+                </td>
+                <td className="px-2.5 py-2.5 text-[#eceef2]">
+                  {formatDelta(selectedPlayer.deltas.ftr, 3)}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.orbPct > 0.4
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.orbPct < -0.4
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.orbPct, 1)}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.drbPct > 0.5
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.drbPct < -0.5
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.drbPct, 1)}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.trbPct > 0.5
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.trbPct < -0.5
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.trbPct, 1)}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.astPct > 0.8
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.astPct < -0.8
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.astPct, 1)}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.stlPct > 0.2
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.stlPct < -0.2
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.stlPct, 1)}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.blkPct > 0.2
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.blkPct < -0.2
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.blkPct, 1)}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.tovPct < -0.5
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.tovPct > 0.5
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.tovPct, 1)}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.usgPct > 0.8
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.usgPct < -0.8
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.usgPct, 1)}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.per > 0.5
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.per < -0.5
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.per, 1)}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.ows > 0.2
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.ows < -0.2
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.ows, 1)}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.dws > 0.2
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.dws < -0.2
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.dws, 1)}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.ws > 0.3
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.ws < -0.3
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.ws, 1)}
+                </td>
+                <td
+                  className={`px-2.5 py-2.5 ${
+                    selectedPlayer.deltas.ws48 > 0.01
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.ws48 < -0.01
+                      ? "text-[#f85149]"
+                      : "text-[#8b9099]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.ws48, 3)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 

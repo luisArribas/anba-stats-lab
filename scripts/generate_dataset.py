@@ -175,7 +175,7 @@ def normalize_player_key(name: str) -> str:
     for k, v in replacements.items():
         s = s.replace(k, v)
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
-    s = s.lower()
+    s = s.lower().replace(".", "")
     s = re.sub(r"[^a-z0-9\s]", " ", s)
     tokens = [t for t in s.split() if t not in {"jr", "sr", "ii", "iii", "iv"}]
     key = " ".join(tokens)
@@ -226,10 +226,22 @@ def safe_div(num: float, den: float, scale: float = 1.0) -> float:
     return float(num / den) * scale
 
 
+def safe_float(val: Any, default: Optional[float] = None) -> Optional[float]:
+    if val is None:
+        return default
+    try:
+        f = float(val)
+        if math.isnan(f) or math.isinf(f):
+            return default
+        return f
+    except Exception:
+        return default
+
+
 def build_stat_block(g: float, gs: float, mp: float, pts: float, orb: float, drb: float,
                      ast: float, stl: float, blk: float, tov: float, pf: float,
                      fg: float, fga: float, fg3: float, fg3a: float, ft: float, fta: float,
-                     plus_minus: float = 0.0) -> Dict[str, float]:
+                     plus_minus: float = 0.0, adv: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
     trb = orb + drb
     fg2 = max(0.0, fg - fg3)
     fg2a = max(0.0, fga - fg3a)
@@ -239,19 +251,65 @@ def build_stat_block(g: float, gs: float, mp: float, pts: float, orb: float, drb
     ft_pct = safe_div(ft, fta, 100.0)
     efg_pct = safe_div(fg + 0.5 * fg3, fga, 100.0)
     ts_den = 2.0 * (fga + 0.44 * fta)
-    ts_pct = safe_div(pts, ts_den, 100.0)
-    fg3a_rate = safe_div(fg3a, fga, 100.0)
+    calc_ts_pct = safe_div(pts, ts_den, 100.0)
+    calc_three_par = safe_div(fg3a, fga, 1.0)
+    calc_ftr = safe_div(fta, fga, 1.0)
     fg2a_rate = safe_div(fg2a, fga, 100.0)
-    fta_rate = safe_div(fta, fga, 100.0)
     ast_tov = safe_div(ast, max(0.3, tov), 1.0)
     gmsc = calc_gamescore(pts, fg, fga, ft, fta, orb, drb, stl, ast, blk, pf, tov)
 
     factor36 = safe_div(36.0, mp, 1.0) if mp > 0 else 0.0
 
+    # Fallback mathematical estimations when advanced stats are missing
+    est_orb_pct = safe_div(orb * 48.0, mp, 1.0) * 1.14 if mp > 0 else 0.0
+    est_drb_pct = safe_div(drb * 48.0, mp, 1.0) * 1.14 if mp > 0 else 0.0
+    est_trb_pct = safe_div(trb * 48.0, mp, 1.0) * 1.14 if mp > 0 else 0.0
+    est_ast_pct = max(0.0, safe_div(ast, max(1.0, (mp / 48.0) * 42.0 - fg), 100.0)) if mp > 0 else 0.0
+    est_stl_pct = safe_div(stl * 48.0, mp, 1.0) if mp > 0 else 0.0
+    est_blk_pct = safe_div(blk * 48.0, mp, 1.85) if mp > 0 else 0.0
+    est_tov_pct = safe_div(tov, fga + 0.44 * fta + tov, 100.0)
+    est_usg_pct = safe_div((fga + 0.44 * fta + tov) * 48.0, mp * 0.99, 1.0) if mp > 0 else 0.0
+    est_per = safe_div(gmsc * 36.0, mp, 1.12) if mp > 0 else 0.0
+    est_ws48 = max(-0.15, min(0.35, (est_per - 6.0) * 0.011))
+    total_mp_est = g * mp
+    est_ws = est_ws48 * (total_mp_est / 48.0)
+    est_ows = est_ws * 0.62
+    est_dws = est_ws * 0.38
+
+    adv = adv or {}
+    total_mp_val = safe_float(adv.get("totalMp"), total_mp_est) or total_mp_est
+    ts_pct = safe_float(adv.get("tsPct"), calc_ts_pct)
+    if ts_pct is None or ts_pct == 0.0 and pts > 0:
+        ts_pct = calc_ts_pct
+    three_par = safe_float(adv.get("threePar"), calc_three_par)
+    if three_par is None:
+        three_par = calc_three_par
+    ftr = safe_float(adv.get("ftr"), calc_ftr)
+    if ftr is None:
+        ftr = calc_ftr
+
+    fg3a_rate = three_par * 100.0
+    fta_rate = ftr * 100.0
+
+    orb_pct = safe_float(adv.get("orbPct"), est_orb_pct) or 0.0
+    drb_pct = safe_float(adv.get("drbPct"), est_drb_pct) or 0.0
+    trb_pct = safe_float(adv.get("trbPct"), est_trb_pct) or 0.0
+    ast_pct = safe_float(adv.get("astPct"), est_ast_pct) or 0.0
+    stl_pct = safe_float(adv.get("stlPct"), est_stl_pct) or 0.0
+    blk_pct = safe_float(adv.get("blkPct"), est_blk_pct) or 0.0
+    tov_pct = safe_float(adv.get("tovPct"), est_tov_pct) or 0.0
+    usg_pct = safe_float(adv.get("usgPct"), est_usg_pct) or 0.0
+    per_val = safe_float(adv.get("per"), est_per) or 0.0
+    ows_val = safe_float(adv.get("ows"), est_ows) or 0.0
+    dws_val = safe_float(adv.get("dws"), est_dws) or 0.0
+    ws_val = safe_float(adv.get("ws"), est_ws) or 0.0
+    ws48_val = safe_float(adv.get("ws48"), est_ws48) or 0.0
+
     return {
         "g": int(round(g)),
         "gs": int(round(gs)),
         "mp": round(mp, 2),
+        "totalMp": int(round(total_mp_val)),
         "pts": round(pts, 2),
         "orb": round(orb, 2),
         "drb": round(drb, 2),
@@ -278,6 +336,21 @@ def build_stat_block(g: float, gs: float, mp: float, pts: float, orb: float, drb
         "fg3aRate": round(fg3a_rate, 1),
         "fg2aRate": round(fg2a_rate, 1),
         "ftaRate": round(fta_rate, 1),
+        "threePar": round(three_par, 3),
+        "ftr": round(ftr, 3),
+        "orbPct": round(orb_pct, 1),
+        "drbPct": round(drb_pct, 1),
+        "trbPct": round(trb_pct, 1),
+        "astPct": round(ast_pct, 1),
+        "stlPct": round(stl_pct, 1),
+        "blkPct": round(blk_pct, 1),
+        "tovPct": round(tov_pct, 1),
+        "usgPct": round(usg_pct, 1),
+        "per": round(per_val, 1),
+        "ows": round(ows_val, 1),
+        "dws": round(dws_val, 1),
+        "ws": round(ws_val, 1),
+        "ws48": round(ws48_val, 3),
         "astTov": round(ast_tov, 2),
         "gameScore": round(gmsc, 2),
         "plusMinus": round(plus_minus, 2),
@@ -296,15 +369,24 @@ def build_stat_block(g: float, gs: float, mp: float, pts: float, orb: float, drb
 def fetch_anba_live_season(season_slug: str = "2026-2027") -> Dict[str, Any]:
     """
     Descarga desde el endpoint JSON de SvelteKit de anba2k.es:
-    https://anba2k.es/estadisticas/__data.json?tab=players&season=2026-2027
+    - Estadísticas por partido (todos los jugadores con elegibles=0)
+    - Estadísticas avanzadas (mode=advanced&elegibles=0)
+    - Estadísticas de equipos (por partido y avanzadas)
     """
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    url_p = f"{ANBA_BASE_URL}/estadisticas/__data.json?tab=players&season={season_slug}"
+    url_p = f"{ANBA_BASE_URL}/estadisticas/__data.json?tab=players&elegibles=0&season={season_slug}"
     resp_p = requests.get(url_p, headers=headers, timeout=15)
     resp_p.raise_for_status()
     raw_p = resp_p.json()
     data_p = unflatten_devalue(raw_p["nodes"][2]["data"])
     player_stats = data_p.get("playerStats", [])
+
+    url_pa = f"{ANBA_BASE_URL}/estadisticas/__data.json?tab=players&mode=advanced&elegibles=0&season={season_slug}"
+    resp_pa = requests.get(url_pa, headers=headers, timeout=15)
+    resp_pa.raise_for_status()
+    raw_pa = resp_pa.json()
+    data_pa = unflatten_devalue(raw_pa["nodes"][2]["data"])
+    player_adv_stats = data_pa.get("playerAdvancedStats", [])
 
     url_t = f"{ANBA_BASE_URL}/estadisticas/__data.json?tab=teams&season={season_slug}"
     resp_t = requests.get(url_t, headers=headers, timeout=15)
@@ -315,6 +397,7 @@ def fetch_anba_live_season(season_slug: str = "2026-2027") -> Dict[str, Any]:
 
     return {
         "players": player_stats,
+        "playersAdvanced": player_adv_stats,
         "teams": team_stats,
     }
 
@@ -398,24 +481,43 @@ def fetch_nba_live_espn_api(season_year: int = 2027) -> pd.DataFrame:
     return df
 
 
+def fetch_br_html(url: str) -> Optional[str]:
+    """Obtiene HTML de Basketball-Reference usando requests o curl_cffi si está disponible."""
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    try:
+        r = requests.get(url, headers=headers, timeout=12)
+        if r.status_code == 200:
+            r.encoding = "utf-8"
+            return r.text
+    except Exception:
+        pass
+    try:
+        from curl_cffi import requests as cffi_requests  # type: ignore
+        r2 = cffi_requests.get(url, impersonate="chrome120", timeout=15)
+        if r2.status_code == 200:
+            return r2.text
+    except Exception:
+        pass
+    return None
+
+
 def fetch_nba_live_season(season_year: int = 2027) -> pd.DataFrame:
     """
-    Obtiene las estadísticas NBA de la temporada indicada (2027 = 2026-27, 2026 = 2025-26).
-    Usa la API JSON de NBA/ESPN para stats + headshots, enriqueciendo ORB/DRB exactos si están disponibles.
+    Obtiene las estadísticas NBA por partido y avanzadas de la temporada indicada (2027 = 2026-27, 2026 = 2025-26).
+    Usa la API JSON de NBA/ESPN para stats + headshots y Basketball-Reference (per_game + advanced) para
+    ORB/DRB exactos y las 16 métricas avanzadas (PER, TS%, 3PAr, FTr, ORB%, DRB%, TRB%, AST%, STL%, BLK%, TOV%, USG%, OWS, DWS, WS, WS/48).
     """
-    print(f"[NBA Fetcher] Descargando estadísticas NBA en vivo para temporada {season_year - 1}-{str(season_year)[2:]}...")
+    print(f"[NBA Fetcher] Descargando estadísticas NBA en vivo (Per Game + Avanzadas) para temporada {season_year - 1}-{str(season_year)[2:]}...")
     espn_df = fetch_nba_live_espn_api(season_year=season_year)
     headshot_map = {}
     if not espn_df.empty and "headshot" in espn_df.columns:
         headshot_map = dict(zip(espn_df["norm_key"], espn_df["headshot"]))
 
-    # Intentar enriquecer ORB/DRB exactos desde Basketball-Reference si responde 200
+    base_df = espn_df
     try:
-        url_br = f"https://www.basketball-reference.com/leagues/NBA_{season_year}_per_game.html"
-        r = requests.get(url_br, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        if r.status_code == 200:
-            r.encoding = "utf-8"
-            soup = BeautifulSoup(r.text, "lxml")
+        html_pg = fetch_br_html(f"https://www.basketball-reference.com/leagues/NBA_{season_year}_per_game.html")
+        if html_pg:
+            soup = BeautifulSoup(html_pg, "lxml")
             table = soup.find("table", {"id": "per_game_stats"})
             if table is not None:
                 br_df = pd.read_html(str(table))[0]
@@ -427,11 +529,54 @@ def fetch_nba_live_season(season_year: int = 2027) -> pd.DataFrame:
                     if col in br_df.columns:
                         br_df[col] = pd.to_numeric(br_df[col], errors="coerce").fillna(0.0)
                 br_df["headshot"] = br_df["norm_key"].map(lambda k: headshot_map.get(k, ""))
-                return br_df
+                base_df = br_df
     except Exception as e:
-        print(f"[Info] Usando exclusivamente API JSON NBA/ESPN ({e})")
+        print(f"[Info] Usando API JSON NBA/ESPN para Per-Game ({e})")
 
-    return espn_df
+    # Enriquecer con la tabla de Estadísticas Avanzadas de Basketball-Reference
+    try:
+        html_adv = fetch_br_html(f"https://www.basketball-reference.com/leagues/NBA_{season_year}_advanced.html")
+        if html_adv and not base_df.empty:
+            soup_adv = BeautifulSoup(html_adv, "lxml")
+            table_adv = soup_adv.find("table", {"id": "advanced"}) or soup_adv.find("table")
+            if table_adv is not None:
+                adv_df = pd.read_html(str(table_adv))[0]
+                adv_df = adv_df[adv_df["Player"].notna() & (adv_df["Player"] != "Player")].copy()
+                adv_df = adv_df[adv_df["Player"] != "League Average"].copy()
+                adv_df["norm_key"] = adv_df["Player"].astype(str).map(normalize_player_key)
+                adv_df = adv_df.drop_duplicates(subset="norm_key", keep="first")
+
+                adv_cols = ["MP", "PER", "TS%", "3PAr", "FTr", "ORB%", "DRB%", "TRB%", "AST%", "STL%", "BLK%", "TOV%", "USG%", "OWS", "DWS", "WS", "WS/48"]
+                for col in adv_cols:
+                    if col in adv_df.columns:
+                        adv_df[col] = pd.to_numeric(adv_df[col], errors="coerce")
+
+                adv_rename = {
+                    "MP": "ADV_MP",
+                    "PER": "ADV_PER",
+                    "TS%": "ADV_TS",
+                    "3PAr": "ADV_3PAR",
+                    "FTr": "ADV_FTR",
+                    "ORB%": "ADV_ORB_PCT",
+                    "DRB%": "ADV_DRB_PCT",
+                    "TRB%": "ADV_TRB_PCT",
+                    "AST%": "ADV_AST_PCT",
+                    "STL%": "ADV_STL_PCT",
+                    "BLK%": "ADV_BLK_PCT",
+                    "TOV%": "ADV_TOV_PCT",
+                    "USG%": "ADV_USG_PCT",
+                    "OWS": "ADV_OWS",
+                    "DWS": "ADV_DWS",
+                    "WS": "ADV_WS",
+                    "WS/48": "ADV_WS48",
+                }
+                keep_cols = ["norm_key"] + [c for c in adv_rename.keys() if c in adv_df.columns]
+                adv_sub = adv_df[keep_cols].rename(columns=adv_rename)
+                base_df = base_df.merge(adv_sub, on="norm_key", how="left")
+    except Exception as e:
+        print(f"[Info] Calculando métricas avanzadas NBA mediante estimador matemático ({e})")
+
+    return base_df
 
 
 def compute_radar_percentiles(players: List[Dict[str, Any]], min_mp_threshold: float = 8.0) -> None:
@@ -542,35 +687,26 @@ def compute_cross_player_clones(players: List[Dict[str, Any]], min_mp_threshold:
 
 
 def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, season_label: str) -> Dict[str, Any]:
-    print(f"[ANBA Live] Descargando temporada {anba_season_slug} desde anba2k.es...")
+    print(f"[ANBA Live] Descargando temporada {anba_season_slug} (Per-Game + Avanzadas) desde anba2k.es...")
     anba_live = fetch_anba_live_season(anba_season_slug)
     anba_players_raw = anba_live["players"]
+    anba_players_adv_raw = anba_live.get("playersAdvanced", [])
     anba_teams_raw = anba_live["teams"]
+
+    # Indexar las estadísticas avanzadas de ANBA por (playerId, teamId) y por norm_key
+    anba_adv_by_id_team: Dict[tuple, Dict[str, Any]] = {}
+    anba_adv_by_key: Dict[str, Dict[str, Any]] = {}
+    for adv_p in anba_players_adv_raw:
+        pid = str(adv_p.get("playerId") or "")
+        tid = str(adv_p.get("teamId") or "")
+        if pid and tid:
+            anba_adv_by_id_team[(pid, tid)] = adv_p
+        nk = normalize_player_key(str(adv_p.get("playerName") or ""))
+        if nk and nk not in anba_adv_by_key:
+            anba_adv_by_key[nk] = adv_p
 
     nba_df = fetch_nba_live_season(nba_season_year)
     nba_by_key = {row["norm_key"]: row for _, row in nba_df.iterrows()}
-
-    # Compute NBA means for relative similarity formula
-    nba_cols = ["MP", "PTS", "ORB", "DRB", "AST", "STL", "BLK", "TOV", "PF", "FG", "FGA", "3P", "3PA", "FT", "FTA"]
-    nba_means = {c: max(0.05, float(nba_df[c].astype(float).mean())) for c in nba_cols if c in nba_df.columns}
-
-    weights_map = [
-        ("minutes", "MP", 0.08, False),
-        ("pts", "PTS", 0.15, False),
-        ("offReb", "ORB", 0.05, True),
-        ("defReb", "DRB", 0.05, True),
-        ("ast", "AST", 0.10, True),
-        ("stl", "STL", 0.04, True),
-        ("blk", "BLK", 0.04, True),
-        ("tov", "TOV", 0.02, True),
-        ("pf", "PF", 0.01, True),
-        ("fgMade", "FG", 0.10, True),
-        ("fgAtt", "FGA", 0.10, True),
-        ("threeMade", "3P", 0.08, True),
-        ("threeAtt", "3PA", 0.08, True),
-        ("ftMade", "FT", 0.05, True),
-        ("ftAtt", "FTA", 0.05, True),
-    ]
 
     matched_records = []
     for ap in anba_players_raw:
@@ -585,10 +721,16 @@ def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, seaso
         if mp_a <= 0 or mp_n <= 0:
             continue
 
-        matched_records.append((ap, nrow))
+        pid = str(ap.get("playerId") or "")
+        tid = str(ap.get("teamId") or "")
+        ap_adv = anba_adv_by_id_team.get((pid, tid)) or anba_adv_by_key.get(nkey) or {}
+
+        matched_records.append((ap, ap_adv, nrow))
 
     players_list: List[Dict[str, Any]] = []
-    for ap, nrow in matched_records:
+    seen_slugs: Dict[str, int] = {}
+
+    for ap, ap_adv, nrow in matched_records:
         raw_pos = str(ap.get("playerPosition") or nrow.get("Pos") or "SF").strip()
         pos_code = POS_MAP.get(raw_pos, "SF")
         pos_es = POS_ES_MAP.get(pos_code, "Alero")
@@ -602,6 +744,50 @@ def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, seaso
             age = int(float(age_val))
         except Exception:
             age = 25
+
+        anba_adv_mapped = {
+            "totalMp": safe_float(ap_adv.get("minutes")),
+            "tsPct": safe_float(ap_adv.get("trueShootingPct")),
+            "threePar": safe_float(ap_adv.get("threePointAttemptRate")),
+            "ftr": safe_float(ap_adv.get("freeThrowRate")),
+            "orbPct": safe_float(ap_adv.get("offensiveReboundPct")),
+            "drbPct": safe_float(ap_adv.get("defensiveReboundPct")),
+            "trbPct": safe_float(ap_adv.get("totalReboundPct")),
+            "astPct": safe_float(ap_adv.get("assistPct")),
+            "stlPct": safe_float(ap_adv.get("stealPct")),
+            "blkPct": safe_float(ap_adv.get("blockPct")),
+            "tovPct": safe_float(ap_adv.get("turnoverPct")),
+            "usgPct": safe_float(ap_adv.get("usagePct")),
+            "per": safe_float(ap_adv.get("playerEfficiencyRating")),
+            "ows": safe_float(ap_adv.get("offensiveWinShares")),
+            "dws": safe_float(ap_adv.get("defensiveWinShares")),
+            "ws": safe_float(ap_adv.get("winShares")),
+            "ws48": safe_float(ap_adv.get("winSharesPer48")),
+        }
+
+        raw_nba_ts = safe_float(nrow.get("ADV_TS"))
+        if raw_nba_ts is not None and raw_nba_ts <= 1.5:
+            raw_nba_ts = raw_nba_ts * 100.0
+
+        nba_adv_mapped = {
+            "totalMp": safe_float(nrow.get("ADV_MP")),
+            "tsPct": raw_nba_ts,
+            "threePar": safe_float(nrow.get("ADV_3PAR")),
+            "ftr": safe_float(nrow.get("ADV_FTR")),
+            "orbPct": safe_float(nrow.get("ADV_ORB_PCT")),
+            "drbPct": safe_float(nrow.get("ADV_DRB_PCT")),
+            "trbPct": safe_float(nrow.get("ADV_TRB_PCT")),
+            "astPct": safe_float(nrow.get("ADV_AST_PCT")),
+            "stlPct": safe_float(nrow.get("ADV_STL_PCT")),
+            "blkPct": safe_float(nrow.get("ADV_BLK_PCT")),
+            "tovPct": safe_float(nrow.get("ADV_TOV_PCT")),
+            "usgPct": safe_float(nrow.get("ADV_USG_PCT")),
+            "per": safe_float(nrow.get("ADV_PER")),
+            "ows": safe_float(nrow.get("ADV_OWS")),
+            "dws": safe_float(nrow.get("ADV_DWS")),
+            "ws": safe_float(nrow.get("ADV_WS")),
+            "ws48": safe_float(nrow.get("ADV_WS48")),
+        }
 
         anba_stats = build_stat_block(
             g=float(ap.get("gamesPlayed") or 0),
@@ -622,6 +808,7 @@ def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, seaso
             ft=float(ap.get("ftMade") or 0),
             fta=float(ap.get("ftAtt") or 0),
             plus_minus=float(ap.get("ml") or 0.0),
+            adv=anba_adv_mapped,
         )
 
         nba_stats = build_stat_block(
@@ -643,6 +830,7 @@ def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, seaso
             ft=float(nrow.get("FT") or 0),
             fta=float(nrow.get("FTA") or 0),
             plus_minus=0.0,
+            adv=nba_adv_mapped,
         )
 
         # Cálculo de Similitud Real Absoluta (0-100%) basada en las 8 métricas clave por partido
@@ -681,10 +869,28 @@ def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, seaso
             "ast36": round(anba_stats["ast36"] - nba_stats["ast36"], 2),
             "fg3aRate": round(anba_stats["fg3aRate"] - nba_stats["fg3aRate"], 1),
             "ftaRate": round(anba_stats["ftaRate"] - nba_stats["ftaRate"], 1),
+            "threePar": round(anba_stats["threePar"] - nba_stats["threePar"], 3),
+            "ftr": round(anba_stats["ftr"] - nba_stats["ftr"], 3),
+            "orbPct": round(anba_stats["orbPct"] - nba_stats["orbPct"], 1),
+            "drbPct": round(anba_stats["drbPct"] - nba_stats["drbPct"], 1),
+            "trbPct": round(anba_stats["trbPct"] - nba_stats["trbPct"], 1),
+            "astPct": round(anba_stats["astPct"] - nba_stats["astPct"], 1),
+            "stlPct": round(anba_stats["stlPct"] - nba_stats["stlPct"], 1),
+            "blkPct": round(anba_stats["blkPct"] - nba_stats["blkPct"], 1),
+            "tovPct": round(anba_stats["tovPct"] - nba_stats["tovPct"], 1),
+            "usgPct": round(anba_stats["usgPct"] - nba_stats["usgPct"], 1),
+            "per": round(anba_stats["per"] - nba_stats["per"], 1),
+            "ows": round(anba_stats["ows"] - nba_stats["ows"], 1),
+            "dws": round(anba_stats["dws"] - nba_stats["dws"], 1),
+            "ws": round(anba_stats["ws"] - nba_stats["ws"], 1),
+            "ws48": round(anba_stats["ws48"] - nba_stats["ws48"], 3),
         }
 
         player_name = str(ap.get("playerName") or nrow.get("Player")).strip()
-        slug = str(ap.get("playerSlug") or re.sub(r"[^a-z0-9]+", "-", normalize_player_key(player_name)).strip("-"))
+        base_slug = str(ap.get("playerSlug") or re.sub(r"[^a-z0-9]+", "-", normalize_player_key(player_name)).strip("-"))
+        seen_slugs[base_slug] = seen_slugs.get(base_slug, 0) + 1
+        slug = base_slug if seen_slugs[base_slug] == 1 else f"{base_slug}-{anba_team.lower()}"
+
         p_img = ap.get("playerImg")
         avatar_url = f"https://anba2k.es/storage/{p_img}" if p_img else str(nrow.get("headshot") or "")
 

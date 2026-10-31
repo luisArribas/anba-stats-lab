@@ -414,7 +414,10 @@ export default function StatisticalClones({
                         { label: "Rebotes por 36 Min (REB/36)", a: baseStats.trb36, b: cloneStats.trb36 },
                         { label: "Asistencias por 36 Min (AST/36)", a: baseStats.ast36, b: cloneStats.ast36 },
                         { label: "True Shooting (TS%)", a: `${baseStats.tsPct}%`, b: `${cloneStats.tsPct}%` },
-                        { label: "Frecuencia de Triple (3PAr%)", a: `${baseStats.fg3aRate}%`, b: `${cloneStats.fg3aRate}%` },
+                        { label: "Uso Ofensivo (USG%)", a: `${baseStats.usgPct}%`, b: `${cloneStats.usgPct}%` },
+                        { label: "Eficiencia Hollinger (PER)", a: baseStats.per, b: cloneStats.per },
+                        { label: "Win Shares / 48m (WS/48)", a: baseStats.ws48.toFixed(3), b: cloneStats.ws48.toFixed(3) },
+                        { label: "Frecuencia de Triple (3PAr)", a: baseStats.threePar.toFixed(3), b: cloneStats.threePar.toFixed(3) },
                         { label: "GameScore (Hollinger)", a: baseStats.gameScore, b: cloneStats.gameScore },
                       ].map((r) => (
                         <tr key={r.label}>
