@@ -164,6 +164,9 @@ export default function PlayerComparator({
     players[0]?.id || ""
   );
   const [positionFilter, setPositionFilter] = useState<string>("ALL");
+  const [leagueFilter, setLeagueFilter] = useState<
+    "ALL" | "both" | "anba_only" | "nba_only"
+  >("ALL");
   const [showDropdown, setShowDropdown] = useState(false);
   const [showMethodology, setShowMethodology] = useState(false);
   const [showAdvancedGlossary, setShowAdvancedGlossary] = useState(false);
@@ -177,6 +180,25 @@ export default function PlayerComparator({
   const [rankingSortDesc, setRankingSortDesc] = useState<boolean>(true);
   const [rankingMinMinutes, setRankingMinMinutes] = useState<boolean>(false);
   const [rankingSearch, setRankingSearch] = useState<string>("");
+
+  const leagueCounts = useMemo(() => {
+    let both = 0;
+    let anbaOnly = 0;
+    let nbaOnly = 0;
+    for (const p of players) {
+      const status =
+        p.leagueStatus ||
+        (p.anba.g > 0 && p.nba.g > 0
+          ? "both"
+          : p.anba.g > 0
+          ? "anba_only"
+          : "nba_only");
+      if (status === "both") both++;
+      else if (status === "anba_only") anbaOnly++;
+      else nbaOnly++;
+    }
+    return { total: players.length, both, anbaOnly, nbaOnly };
+  }, [players]);
 
   const handleOpenRanking = (field: RankingSortField) => {
     if (showRankingPanel && rankingSortField === field) {
@@ -193,6 +215,10 @@ export default function PlayerComparator({
     const q = rankingSearch.trim().toLowerCase();
     return players
       .filter((p) => {
+        // En el ranking de diferenciales / similitud solo entran jugadores que han debutado en ambas ligas
+        if (p.anba.g <= 0 || p.nba.g <= 0) {
+          return false;
+        }
         if (rankingMinMinutes && (p.anba.mp < 12 || p.nba.mp < 12)) {
           return false;
         }
@@ -257,6 +283,16 @@ export default function PlayerComparator({
   const filteredPlayers = useMemo(() => {
     return players
       .filter((p) => {
+        const status =
+          p.leagueStatus ||
+          (p.anba.g > 0 && p.nba.g > 0
+            ? "both"
+            : p.anba.g > 0
+            ? "anba_only"
+            : "nba_only");
+        if (leagueFilter !== "ALL" && status !== leagueFilter) {
+          return false;
+        }
         const matchesPos =
           positionFilter === "ALL" || p.pos.includes(positionFilter);
         const q = searchQuery.toLowerCase().trim();
@@ -270,13 +306,18 @@ export default function PlayerComparator({
             p.nbaTeamName.toLowerCase().includes(q))
         );
       })
-      .slice(0, 25);
-  }, [players, searchQuery, positionFilter]);
+      .slice(0, 35);
+  }, [players, searchQuery, positionFilter, leagueFilter]);
 
   if (!selectedPlayer) return null;
 
+  const hasAnba = selectedPlayer.anba.g > 0 && selectedPlayer.anba.mp > 0;
+  const hasNba = selectedPlayer.nba.g > 0 && selectedPlayer.nba.mp > 0;
+  const hasBoth = hasAnba && hasNba;
+
   const diagnosis = diagnosePlayer(selectedPlayer);
   const topClone = selectedPlayer.clones?.nbaRealClones?.[0];
+  const topAnbaClone = selectedPlayer.clones?.anbaVirtualClones?.[0];
 
   const radarData = [
     {
@@ -643,55 +684,97 @@ export default function PlayerComparator({
                     No se encontraron jugadores con ese criterio.
                   </div>
                 ) : (
-                  filteredPlayers.map((p) => (
-                    <button
-                      key={p.id}
-                      onMouseDown={() => {
-                        handleSelectPlayer(p.id);
-                        setSearchQuery("");
-                        setShowDropdown(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3.5 sm:px-4 py-2.5 text-left hover:bg-[#4d84e2]/10 transition-colors ${
-                        p.id === selectedPlayer.id ? "bg-[#16233a]" : ""
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#0f1219] text-[#8b9099] border border-[#262c3b] shrink-0">
-                          {p.pos}
-                        </span>
-                        <div className="truncate">
-                          <p className="text-sm font-semibold text-[#eceef2] truncate">
-                            {p.name}
-                          </p>
-                          <p className="text-[11px] text-[#8b9099] truncate">
-                            ANBA:{" "}
-                            <span className="text-[#4d84e2] font-medium">
-                              {p.anbaTeamName}
-                            </span>{" "}
-                            · NBA:{" "}
-                            <span className="text-[#c9a84c] font-medium">
-                              {p.nbaTeam}
-                            </span>
-                          </p>
+                  filteredPlayers.map((p) => {
+                    const pHasAnba = p.anba.g > 0;
+                    const pHasNba = p.nba.g > 0;
+                    return (
+                      <button
+                        key={p.id}
+                        onMouseDown={() => {
+                          handleSelectPlayer(p.id);
+                          setSearchQuery("");
+                          setShowDropdown(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3.5 sm:px-4 py-2.5 text-left hover:bg-[#4d84e2]/10 transition-colors ${
+                          p.id === selectedPlayer.id ? "bg-[#16233a]" : ""
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#0f1219] text-[#8b9099] border border-[#262c3b] shrink-0">
+                            {p.pos}
+                          </span>
+                          <div className="truncate">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-sm font-semibold text-[#eceef2] truncate">
+                                {p.name}
+                              </p>
+                              {!pHasNba && (
+                                <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-[#16233a] text-[#7ab3ff] border border-[#4d84e2]/30 shrink-0">
+                                  Solo ANBA
+                                </span>
+                              )}
+                              {!pHasAnba && (
+                                <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-[#c9a84c]/15 text-[#c9a84c] border border-[#c9a84c]/30 shrink-0">
+                                  Solo NBA
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-[#8b9099] truncate">
+                              ANBA:{" "}
+                              <span className="text-[#4d84e2] font-medium">
+                                {pHasAnba ? p.anbaTeamName : "Sin debutar"}
+                              </span>{" "}
+                              · NBA:{" "}
+                              <span className="text-[#c9a84c] font-medium">
+                                {pHasNba ? p.nbaTeam : "Sin debutar"}
+                              </span>
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                      <div className="text-right font-mono text-xs shrink-0 ml-2">
-                        <span className="text-[#4d84e2] font-bold">
-                          {p.anba.pts.toFixed(1)}
-                        </span>
-                        <span className="text-[#8b9099] mx-1">vs</span>
-                        <span className="text-[#c9a84c] font-bold">
-                          {p.nba.pts.toFixed(1)}
-                        </span>
-                        <span className="text-[10px] text-[#8b9099] block">
-                          PTS
-                        </span>
-                      </div>
-                    </button>
-                  ))
+                        <div className="text-right font-mono text-xs shrink-0 ml-2">
+                          <span className="text-[#4d84e2] font-bold">
+                            {pHasAnba ? p.anba.pts.toFixed(1) : "—"}
+                          </span>
+                          <span className="text-[#8b9099] mx-1">vs</span>
+                          <span className="text-[#c9a84c] font-bold">
+                            {pHasNba ? p.nba.pts.toFixed(1) : "—"}
+                          </span>
+                          <span className="text-[10px] text-[#8b9099] block">
+                            PTS
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })
                 )}
               </div>
             )}
+          </div>
+
+          {/* League Availability Filter Pills */}
+          <div className="flex items-center gap-1 bg-[#0f1219] p-1 rounded-lg border border-[#262c3b] overflow-x-auto no-scrollbar">
+            {[
+              { id: "ALL" as const, label: `Todos (${leagueCounts.total})` },
+              { id: "both" as const, label: `Ambas (${leagueCounts.both})` },
+              { id: "anba_only" as const, label: `Solo ANBA (${leagueCounts.anbaOnly})` },
+              { id: "nba_only" as const, label: `Solo NBA (${leagueCounts.nbaOnly})` },
+            ].map((lf) => (
+              <button
+                key={lf.id}
+                type="button"
+                onClick={() => {
+                  setLeagueFilter(lf.id);
+                  setShowDropdown(true);
+                }}
+                className={`px-2 py-1.5 rounded-md text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                  leagueFilter === lf.id
+                    ? "bg-[#16233a] text-[#7ab3ff] border border-[#4d84e2]/40"
+                    : "text-[#8b9099] hover:text-[#eceef2]"
+                }`}
+              >
+                {lf.label}
+              </button>
+            ))}
           </div>
 
           {/* Position Filter Pills */}
@@ -750,6 +833,11 @@ export default function PlayerComparator({
                   {selectedPlayer.age} años
                 </span>
               )}
+              {!hasBoth && (
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-[#f6c453]/15 text-[#f6c453] border border-[#f6c453]/30">
+                  {hasAnba ? "Solo debut en ANBA 2K" : "Solo debut en NBA Real"}
+                </span>
+              )}
               <span className="ml-auto text-[11px] font-mono text-[#8b9099] flex items-center gap-1">
                 <Calendar className="w-3 h-3 text-[#4d84e2]" />
                 {season}
@@ -783,10 +871,12 @@ export default function PlayerComparator({
                   Equipo ANBA 2K
                 </span>
                 <p className="text-xs sm:text-sm font-bold text-[#eceef2] mt-0.5 truncate">
-                  {selectedPlayer.anbaTeamName}
+                  {hasAnba ? selectedPlayer.anbaTeamName : "Sin debutar en ANBA"}
                 </p>
                 <p className="text-[11px] text-[#8b9099] font-mono mt-0.5">
-                  {selectedPlayer.anba.g} PJ · {selectedPlayer.anba.mp} MIN
+                  {hasAnba
+                    ? `${selectedPlayer.anba.g} PJ · ${selectedPlayer.anba.mp} MIN`
+                    : "0 PJ · Sin estadísticas aún"}
                 </p>
               </div>
 
@@ -795,23 +885,27 @@ export default function PlayerComparator({
                   Equipo NBA Real
                 </span>
                 <p className="text-xs sm:text-sm font-bold text-[#eceef2] mt-0.5 truncate">
-                  {selectedPlayer.nbaTeamName || selectedPlayer.nbaTeam}
+                  {hasNba
+                    ? selectedPlayer.nbaTeamName || selectedPlayer.nbaTeam
+                    : "Sin debutar en NBA"}
                 </p>
                 <p className="text-[11px] text-[#8b9099] font-mono mt-0.5">
-                  {selectedPlayer.nba.g} PJ · {selectedPlayer.nba.mp} MIN
+                  {hasNba
+                    ? `${selectedPlayer.nba.g} PJ · ${selectedPlayer.nba.mp} MIN`
+                    : "0 PJ · Sin estadísticas aún"}
                 </p>
               </div>
             </div>
           </div>
 
           {/* Nearest Statistical Clone Pill */}
-          {topClone && (
+          {hasAnba && topClone ? (
             <div className="mt-3.5 pt-3 border-t border-[#262c3b] flex items-center justify-between text-xs gap-2">
               <span className="text-[#8b9099] flex items-center gap-1.5 shrink-0">
                 <Sparkles className="w-3.5 h-3.5 text-[#c9a84c]" />
                 En ANBA rinde como:
               </span>
-              {selectedPlayer.similarityScore >= topClone.similarity ? (
+              {hasBoth && selectedPlayer.similarityScore >= topClone.similarity ? (
                 <span className="font-semibold text-[#eceef2] bg-[#0f1219] px-2.5 py-1 rounded-md border border-[#262c3b] truncate">
                   Él mismo{" "}
                   <span className="text-[#5ee89a] font-mono text-[11px]">
@@ -830,7 +924,20 @@ export default function PlayerComparator({
                 </span>
               )}
             </div>
-          )}
+          ) : !hasAnba && topAnbaClone ? (
+            <div className="mt-3.5 pt-3 border-t border-[#262c3b] flex items-center justify-between text-xs gap-2">
+              <span className="text-[#8b9099] flex items-center gap-1.5 shrink-0">
+                <Sparkles className="w-3.5 h-3.5 text-[#4d84e2]" />
+                Su NBA equivale en ANBA a:
+              </span>
+              <span className="font-semibold text-[#eceef2] bg-[#0f1219] px-2.5 py-1 rounded-md border border-[#262c3b] truncate">
+                {topAnbaClone.name}{" "}
+                <span className="text-[#5ee89a] font-mono text-[11px]">
+                  ({topAnbaClone.similarity.toFixed(1)}% sim)
+                </span>
+              </span>
+            </div>
+          ) : null}
         </div>
 
         {/* 4 Summary Metric Cards (2x2 on Mobile, 4 cols on Desktop) */}
@@ -852,13 +959,23 @@ export default function PlayerComparator({
               <Award className="w-4 h-4 text-[#4d84e2] shrink-0" />
             </div>
             <div className="my-1.5 sm:my-2">
-              <span className="text-2xl sm:text-3xl font-mono font-black text-[#eceef2]">
-                {selectedPlayer.similarityScore.toFixed(1)}%
-              </span>
+              {hasBoth ? (
+                <span className="text-2xl sm:text-3xl font-mono font-black text-[#eceef2]">
+                  {selectedPlayer.similarityScore.toFixed(1)}%
+                </span>
+              ) : (
+                <span className="text-xl sm:text-2xl font-mono font-black text-[#8b9099]">
+                  Sin comparar
+                </span>
+              )}
             </div>
             <div className="space-y-1 w-full">
               <div className="text-[11px] text-[#8b9099] truncate">
-                {selectedPlayer.similarityScore >= 80 ? (
+                {!hasBoth ? (
+                  <span className="text-[#f6c453] font-medium">
+                    {hasAnba ? "Inédito en NBA Real" : "Inédito en ANBA 2K"}
+                  </span>
+                ) : selectedPlayer.similarityScore >= 80 ? (
                   <span className="text-[#5ee89a] font-medium">
                     Alta fidelidad 2K
                   </span>
@@ -891,32 +1008,54 @@ export default function PlayerComparator({
           >
             <div className="flex items-center justify-between w-full">
               <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099] group-hover:text-[#eceef2] transition-colors">
-                Dif. Puntos
+                {hasBoth ? "Dif. Puntos" : "Puntos / Part."}
               </span>
               <Flame className="w-4 h-4 text-[#c9a84c] shrink-0" />
             </div>
             <div className="my-1.5 sm:my-2 flex items-baseline gap-1.5">
-              <span
-                className={`text-2xl sm:text-3xl font-mono font-black ${
-                  selectedPlayer.deltas.pts > 0.5
-                    ? "text-[#5ee89a]"
-                    : selectedPlayer.deltas.pts < -0.5
-                    ? "text-[#f85149]"
-                    : "text-[#eceef2]"
-                }`}
-              >
-                {formatDelta(selectedPlayer.deltas.pts, 1)}
-              </span>
-              <span className="text-[10px] text-[#8b9099] font-mono">PTS</span>
+              {hasBoth ? (
+                <>
+                  <span
+                    className={`text-2xl sm:text-3xl font-mono font-black ${
+                      selectedPlayer.deltas.pts > 0.5
+                        ? "text-[#5ee89a]"
+                        : selectedPlayer.deltas.pts < -0.5
+                        ? "text-[#f85149]"
+                        : "text-[#eceef2]"
+                    }`}
+                  >
+                    {formatDelta(selectedPlayer.deltas.pts, 1)}
+                  </span>
+                  <span className="text-[10px] text-[#8b9099] font-mono">
+                    PTS
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span
+                    className={`text-2xl sm:text-3xl font-mono font-black ${
+                      hasAnba ? "text-[#4d84e2]" : "text-[#c9a84c]"
+                    }`}
+                  >
+                    {(hasAnba
+                      ? selectedPlayer.anba.pts
+                      : selectedPlayer.nba.pts
+                    ).toFixed(1)}
+                  </span>
+                  <span className="text-[10px] text-[#8b9099] font-mono">
+                    {hasAnba ? "PTS ANBA" : "PTS NBA"}
+                  </span>
+                </>
+              )}
             </div>
             <div className="space-y-1 w-full">
               <div className="text-[11px] text-[#8b9099] font-mono">
                 <span className="text-[#4d84e2] font-semibold">
-                  {selectedPlayer.anba.pts.toFixed(1)}
+                  {hasAnba ? selectedPlayer.anba.pts.toFixed(1) : "—"}
                 </span>{" "}
                 vs{" "}
                 <span className="text-[#c9a84c] font-semibold">
-                  {selectedPlayer.nba.pts.toFixed(1)}
+                  {hasNba ? selectedPlayer.nba.pts.toFixed(1) : "—"}
                 </span>
               </div>
               <div className="text-[10px] font-semibold text-[#4d84e2] flex items-center gap-1 pt-1 border-t border-[#262c3b]/70">
@@ -938,31 +1077,45 @@ export default function PlayerComparator({
           >
             <div className="flex items-center justify-between w-full">
               <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099] group-hover:text-[#eceef2] transition-colors">
-                Dif. TS%
+                {hasBoth ? "Dif. TS%" : "True Shooting"}
               </span>
               <Activity className="w-4 h-4 text-[#5ee89a] shrink-0" />
             </div>
             <div className="my-1.5 sm:my-2 flex items-baseline gap-1">
-              <span
-                className={`text-2xl sm:text-3xl font-mono font-black ${
-                  selectedPlayer.deltas.tsPct > 0.5
-                    ? "text-[#5ee89a]"
-                    : selectedPlayer.deltas.tsPct < -0.5
-                    ? "text-[#f85149]"
-                    : "text-[#eceef2]"
-                }`}
-              >
-                {formatDelta(selectedPlayer.deltas.tsPct, 1, "%")}
-              </span>
+              {hasBoth ? (
+                <span
+                  className={`text-2xl sm:text-3xl font-mono font-black ${
+                    selectedPlayer.deltas.tsPct > 0.5
+                      ? "text-[#5ee89a]"
+                      : selectedPlayer.deltas.tsPct < -0.5
+                      ? "text-[#f85149]"
+                      : "text-[#eceef2]"
+                  }`}
+                >
+                  {formatDelta(selectedPlayer.deltas.tsPct, 1, "%")}
+                </span>
+              ) : (
+                <span
+                  className={`text-2xl sm:text-3xl font-mono font-black ${
+                    hasAnba ? "text-[#4d84e2]" : "text-[#c9a84c]"
+                  }`}
+                >
+                  {(hasAnba
+                    ? selectedPlayer.anba.tsPct
+                    : selectedPlayer.nba.tsPct
+                  ).toFixed(1)}
+                  %
+                </span>
+              )}
             </div>
             <div className="space-y-1 w-full">
               <div className="text-[11px] text-[#8b9099] font-mono">
                 <span className="text-[#4d84e2] font-semibold">
-                  {selectedPlayer.anba.tsPct.toFixed(1)}%
+                  {hasAnba ? `${selectedPlayer.anba.tsPct.toFixed(1)}%` : "—"}
                 </span>{" "}
                 vs{" "}
                 <span className="text-[#c9a84c] font-semibold">
-                  {selectedPlayer.nba.tsPct.toFixed(1)}%
+                  {hasNba ? `${selectedPlayer.nba.tsPct.toFixed(1)}%` : "—"}
                 </span>
               </div>
               <div className="text-[10px] font-semibold text-[#4d84e2] flex items-center gap-1 pt-1 border-t border-[#262c3b]/70">
@@ -987,32 +1140,54 @@ export default function PlayerComparator({
           >
             <div className="flex items-center justify-between w-full">
               <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-[#8b9099] group-hover:text-[#eceef2] transition-colors">
-                Dif. PER (Avanzada)
+                {hasBoth ? "Dif. PER (Avanzada)" : "PER (Avanzada)"}
               </span>
               <Shield className="w-4 h-4 text-[#7ab3ff] shrink-0" />
             </div>
             <div className="my-1.5 sm:my-2 flex items-baseline gap-1.5">
-              <span
-                className={`text-2xl sm:text-3xl font-mono font-black ${
-                  selectedPlayer.deltas.per > 0.5
-                    ? "text-[#5ee89a]"
-                    : selectedPlayer.deltas.per < -0.5
-                    ? "text-[#f85149]"
-                    : "text-[#eceef2]"
-                }`}
-              >
-                {formatDelta(selectedPlayer.deltas.per, 1)}
-              </span>
-              <span className="text-[10px] text-[#8b9099] font-mono">PER</span>
+              {hasBoth ? (
+                <>
+                  <span
+                    className={`text-2xl sm:text-3xl font-mono font-black ${
+                      selectedPlayer.deltas.per > 0.5
+                        ? "text-[#5ee89a]"
+                        : selectedPlayer.deltas.per < -0.5
+                        ? "text-[#f85149]"
+                        : "text-[#eceef2]"
+                    }`}
+                  >
+                    {formatDelta(selectedPlayer.deltas.per, 1)}
+                  </span>
+                  <span className="text-[10px] text-[#8b9099] font-mono">
+                    PER
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span
+                    className={`text-2xl sm:text-3xl font-mono font-black ${
+                      hasAnba ? "text-[#4d84e2]" : "text-[#c9a84c]"
+                    }`}
+                  >
+                    {(hasAnba
+                      ? selectedPlayer.anba.per
+                      : selectedPlayer.nba.per
+                    ).toFixed(1)}
+                  </span>
+                  <span className="text-[10px] text-[#8b9099] font-mono">
+                    {hasAnba ? "PER ANBA" : "PER NBA"}
+                  </span>
+                </>
+              )}
             </div>
             <div className="space-y-1 w-full">
               <div className="text-[11px] text-[#8b9099] font-mono">
                 <span className="text-[#4d84e2] font-semibold">
-                  {selectedPlayer.anba.per.toFixed(1)}
+                  {hasAnba ? selectedPlayer.anba.per.toFixed(1) : "—"}
                 </span>{" "}
                 vs{" "}
                 <span className="text-[#c9a84c] font-semibold">
-                  {selectedPlayer.nba.per.toFixed(1)}
+                  {hasNba ? selectedPlayer.nba.per.toFixed(1) : "—"}
                 </span>
               </div>
               <div className="text-[10px] font-semibold text-[#4d84e2] flex items-center gap-1 pt-1 border-t border-[#262c3b]/70">
@@ -1444,21 +1619,42 @@ export default function PlayerComparator({
             </div>
           </div>
 
+          {!hasBoth && (
+            <div className="mb-4 px-3.5 py-2.5 rounded-lg bg-[#0f1219] border border-[#f6c453]/30 text-xs text-[#eceef2] flex items-center gap-2">
+              <Info className="w-4 h-4 text-[#f6c453] shrink-0" />
+              <span>
+                <strong>{selectedPlayer.name}</strong> solo ha debutado en{" "}
+                <strong className={hasAnba ? "text-[#4d84e2]" : "text-[#c9a84c]"}>
+                  {hasAnba ? "ANBA 2K" : "la NBA Real"}
+                </strong>{" "}
+                esta temporada. Se muestran sus estadísticas en dicha liga; la
+                otra competición y los diferenciales (Δ) aparecen como{" "}
+                <code className="text-[#8b9099]">—</code>.
+              </span>
+            </div>
+          )}
+
           <div className="space-y-3.5 sm:space-y-4">
             {statRows.map((item) => {
               const dec = item.decimals ?? 1;
               const thresh = dec === 3 ? 0.015 : 0.2;
               const diff = item.anba - item.nba;
-              const anbaPct = Math.max(
-                0,
-                Math.min(100, (Math.max(0, item.anba) / item.max) * 100)
-              );
-              const nbaPct = Math.max(
-                0,
-                Math.min(100, (Math.max(0, item.nba) / item.max) * 100)
-              );
-              const isPositive = item.invertColor ? diff < -thresh : diff > thresh;
-              const isNegative = item.invertColor ? diff > thresh : diff < -thresh;
+              const anbaPct = hasAnba
+                ? Math.max(
+                    0,
+                    Math.min(100, (Math.max(0, item.anba) / item.max) * 100)
+                  )
+                : 0;
+              const nbaPct = hasNba
+                ? Math.max(
+                    0,
+                    Math.min(100, (Math.max(0, item.nba) / item.max) * 100)
+                  )
+                : 0;
+              const isPositive =
+                hasBoth && (item.invertColor ? diff < -thresh : diff > thresh);
+              const isNegative =
+                hasBoth && (item.invertColor ? diff > thresh : diff < -thresh);
 
               const diffBadgeClass = isPositive
                 ? "bg-[#5ee89a]/15 text-[#5ee89a] border border-[#5ee89a]/30"
@@ -1479,14 +1675,20 @@ export default function PlayerComparator({
                     <span
                       className={`inline-flex items-center gap-0.5 text-[11px] font-mono font-bold px-1.5 py-0.5 rounded ${diffBadgeClass}`}
                     >
-                      {diff > thresh * 0.5 ? (
-                        <ArrowUpRight className="w-3 h-3" />
-                      ) : diff < -thresh * 0.5 ? (
-                        <ArrowDownRight className="w-3 h-3" />
+                      {!hasBoth ? (
+                        "—"
                       ) : (
-                        <Minus className="w-3 h-3" />
+                        <>
+                          {diff > thresh * 0.5 ? (
+                            <ArrowUpRight className="w-3 h-3" />
+                          ) : diff < -thresh * 0.5 ? (
+                            <ArrowDownRight className="w-3 h-3" />
+                          ) : (
+                            <Minus className="w-3 h-3" />
+                          )}
+                          {formatDelta(diff, dec, item.suffix || "")}
+                        </>
                       )}
-                      {formatDelta(diff, dec, item.suffix || "")}
                     </span>
                   </div>
 
@@ -1500,8 +1702,9 @@ export default function PlayerComparator({
                     {/* ANBA Value + Right-Aligned Bar */}
                     <div className="col-span-6 sm:col-span-3 flex items-center justify-end gap-2">
                       <span className="font-mono text-xs font-bold text-[#4d84e2] shrink-0">
-                        {item.anba.toFixed(dec)}
-                        {item.suffix || ""}
+                        {hasAnba
+                          ? `${item.anba.toFixed(dec)}${item.suffix || ""}`
+                          : "—"}
                       </span>
                       <div className="w-full bg-[#0f1219] h-2.5 rounded-l-full overflow-hidden flex justify-end border border-[#262c3b]">
                         <div
@@ -1520,8 +1723,9 @@ export default function PlayerComparator({
                         />
                       </div>
                       <span className="font-mono text-xs font-bold text-[#c9a84c] shrink-0">
-                        {item.nba.toFixed(dec)}
-                        {item.suffix || ""}
+                        {hasNba
+                          ? `${item.nba.toFixed(dec)}${item.suffix || ""}`
+                          : "—"}
                       </span>
                     </div>
 
@@ -1530,14 +1734,20 @@ export default function PlayerComparator({
                       <span
                         className={`inline-flex items-center gap-0.5 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded ${diffBadgeClass}`}
                       >
-                        {diff > thresh * 0.5 ? (
-                          <ArrowUpRight className="w-3 h-3" />
-                        ) : diff < -thresh * 0.5 ? (
-                          <ArrowDownRight className="w-3 h-3" />
+                        {!hasBoth ? (
+                          "—"
                         ) : (
-                          <Minus className="w-3 h-3" />
+                          <>
+                            {diff > thresh * 0.5 ? (
+                              <ArrowUpRight className="w-3 h-3" />
+                            ) : diff < -thresh * 0.5 ? (
+                              <ArrowDownRight className="w-3 h-3" />
+                            ) : (
+                              <Minus className="w-3 h-3" />
+                            )}
+                            {formatDelta(diff, dec)}
+                          </>
                         )}
-                        {formatDelta(diff, dec)}
                       </span>
                     </div>
                   </div>
@@ -1815,124 +2025,146 @@ export default function PlayerComparator({
               <tr className="hover:bg-[#161a23]/60 transition-colors">
                 <td className="sticky left-0 z-10 bg-[#0f1219] px-3.5 py-2.5 text-left font-sans font-bold text-[#4d84e2] flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-[#4d84e2]" />
-                  ANBA 2K ({selectedPlayer.anbaTeam})
+                  ANBA 2K ({hasAnba ? selectedPlayer.anbaTeam : "Sin debut"})
                 </td>
                 <td className="px-2.5 py-2.5 text-[#eceef2]">
                   {selectedPlayer.anba.g}
                 </td>
-                <td className="px-2.5 py-2.5 text-[#8b9099]">
-                  {selectedPlayer.anba.totalMp}
-                </td>
-                <td className="px-2.5 py-2.5 font-semibold text-[#4d84e2]">
-                  {selectedPlayer.anba.tsPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.anba.threePar.toFixed(3)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.anba.ftr.toFixed(3)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.anba.orbPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.anba.drbPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
-                  {selectedPlayer.anba.trbPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
-                  {selectedPlayer.anba.astPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.anba.stlPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.anba.blkPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.anba.tovPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 font-semibold text-[#4d84e2]">
-                  {selectedPlayer.anba.usgPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 font-bold text-[#4d84e2] bg-[#16233a]/30">
-                  {selectedPlayer.anba.per.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.anba.ows.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.anba.dws.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
-                  {selectedPlayer.anba.ws.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 font-bold text-[#4d84e2] bg-[#16233a]/30">
-                  {selectedPlayer.anba.ws48.toFixed(3)}
-                </td>
+                {hasAnba ? (
+                  <>
+                    <td className="px-2.5 py-2.5 text-[#8b9099]">
+                      {selectedPlayer.anba.totalMp}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-semibold text-[#4d84e2]">
+                      {selectedPlayer.anba.tsPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.anba.threePar.toFixed(3)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.anba.ftr.toFixed(3)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.anba.orbPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.anba.drbPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
+                      {selectedPlayer.anba.trbPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
+                      {selectedPlayer.anba.astPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.anba.stlPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.anba.blkPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.anba.tovPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-semibold text-[#4d84e2]">
+                      {selectedPlayer.anba.usgPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-bold text-[#4d84e2] bg-[#16233a]/30">
+                      {selectedPlayer.anba.per.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.anba.ows.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.anba.dws.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
+                      {selectedPlayer.anba.ws.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-bold text-[#4d84e2] bg-[#16233a]/30">
+                      {selectedPlayer.anba.ws48.toFixed(3)}
+                    </td>
+                  </>
+                ) : (
+                  <td
+                    colSpan={17}
+                    className="px-3 py-2.5 text-left font-sans text-xs text-[#8b9099] italic"
+                  >
+                    Sin debutar aún en ANBA 2K esta temporada
+                  </td>
+                )}
               </tr>
 
               {/* Fila 2: NBA Real */}
               <tr className="hover:bg-[#161a23]/60 transition-colors">
                 <td className="sticky left-0 z-10 bg-[#0f1219] px-3.5 py-2.5 text-left font-sans font-bold text-[#c9a84c] flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-[#c9a84c]" />
-                  NBA Real ({selectedPlayer.nbaTeam})
+                  NBA Real ({hasNba ? selectedPlayer.nbaTeam : "Sin debut"})
                 </td>
                 <td className="px-2.5 py-2.5 text-[#eceef2]">
                   {selectedPlayer.nba.g}
                 </td>
-                <td className="px-2.5 py-2.5 text-[#8b9099]">
-                  {selectedPlayer.nba.totalMp}
-                </td>
-                <td className="px-2.5 py-2.5 font-semibold text-[#c9a84c]">
-                  {selectedPlayer.nba.tsPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.nba.threePar.toFixed(3)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.nba.ftr.toFixed(3)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.nba.orbPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.nba.drbPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
-                  {selectedPlayer.nba.trbPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
-                  {selectedPlayer.nba.astPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.nba.stlPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.nba.blkPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.nba.tovPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 font-semibold text-[#c9a84c]">
-                  {selectedPlayer.nba.usgPct.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 font-bold text-[#c9a84c] bg-[#c9a84c]/10">
-                  {selectedPlayer.nba.per.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.nba.ows.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {selectedPlayer.nba.dws.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
-                  {selectedPlayer.nba.ws.toFixed(1)}
-                </td>
-                <td className="px-2.5 py-2.5 font-bold text-[#c9a84c] bg-[#c9a84c]/10">
-                  {selectedPlayer.nba.ws48.toFixed(3)}
-                </td>
+                {hasNba ? (
+                  <>
+                    <td className="px-2.5 py-2.5 text-[#8b9099]">
+                      {selectedPlayer.nba.totalMp}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-semibold text-[#c9a84c]">
+                      {selectedPlayer.nba.tsPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.nba.threePar.toFixed(3)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.nba.ftr.toFixed(3)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.nba.orbPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.nba.drbPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
+                      {selectedPlayer.nba.trbPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
+                      {selectedPlayer.nba.astPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.nba.stlPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.nba.blkPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.nba.tovPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-semibold text-[#c9a84c]">
+                      {selectedPlayer.nba.usgPct.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-bold text-[#c9a84c] bg-[#c9a84c]/10">
+                      {selectedPlayer.nba.per.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.nba.ows.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {selectedPlayer.nba.dws.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-semibold text-[#eceef2]">
+                      {selectedPlayer.nba.ws.toFixed(1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 font-bold text-[#c9a84c] bg-[#c9a84c]/10">
+                      {selectedPlayer.nba.ws48.toFixed(3)}
+                    </td>
+                  </>
+                ) : (
+                  <td
+                    colSpan={17}
+                    className="px-3 py-2.5 text-left font-sans text-xs text-[#8b9099] italic"
+                  >
+                    Sin debutar aún en la NBA Real esta temporada
+                  </td>
+                )}
               </tr>
 
               {/* Fila 3: Diferencial (ANBA - NBA) */}
@@ -1940,175 +2172,191 @@ export default function PlayerComparator({
                 <td className="sticky left-0 z-10 bg-[#161a23] px-3.5 py-2.5 text-left font-sans text-[11px] uppercase tracking-wider text-[#8b9099]">
                   Diferencial (Δ)
                 </td>
-                <td className="px-2.5 py-2.5 text-[#8b9099]">
-                  {formatDelta(selectedPlayer.anba.g - selectedPlayer.nba.g, 0)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#8b9099]">
-                  {formatDelta(
-                    selectedPlayer.anba.totalMp - selectedPlayer.nba.totalMp,
-                    0
-                  )}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.tsPct > 0.5
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.tsPct < -0.5
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.tsPct, 1)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {formatDelta(selectedPlayer.deltas.threePar, 3)}
-                </td>
-                <td className="px-2.5 py-2.5 text-[#eceef2]">
-                  {formatDelta(selectedPlayer.deltas.ftr, 3)}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.orbPct > 0.4
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.orbPct < -0.4
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.orbPct, 1)}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.drbPct > 0.5
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.drbPct < -0.5
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.drbPct, 1)}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.trbPct > 0.5
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.trbPct < -0.5
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.trbPct, 1)}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.astPct > 0.8
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.astPct < -0.8
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.astPct, 1)}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.stlPct > 0.2
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.stlPct < -0.2
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.stlPct, 1)}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.blkPct > 0.2
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.blkPct < -0.2
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.blkPct, 1)}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.tovPct < -0.5
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.tovPct > 0.5
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.tovPct, 1)}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.usgPct > 0.8
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.usgPct < -0.8
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.usgPct, 1)}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.per > 0.5
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.per < -0.5
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.per, 1)}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.ows > 0.2
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.ows < -0.2
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.ows, 1)}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.dws > 0.2
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.dws < -0.2
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.dws, 1)}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.ws > 0.3
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.ws < -0.3
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.ws, 1)}
-                </td>
-                <td
-                  className={`px-2.5 py-2.5 ${
-                    selectedPlayer.deltas.ws48 > 0.01
-                      ? "text-[#5ee89a]"
-                      : selectedPlayer.deltas.ws48 < -0.01
-                      ? "text-[#f85149]"
-                      : "text-[#8b9099]"
-                  }`}
-                >
-                  {formatDelta(selectedPlayer.deltas.ws48, 3)}
-                </td>
+                {hasBoth ? (
+                  <>
+                    <td className="px-2.5 py-2.5 text-[#8b9099]">
+                      {formatDelta(
+                        selectedPlayer.anba.g - selectedPlayer.nba.g,
+                        0
+                      )}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#8b9099]">
+                      {formatDelta(
+                        selectedPlayer.anba.totalMp -
+                          selectedPlayer.nba.totalMp,
+                        0
+                      )}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.tsPct > 0.5
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.tsPct < -0.5
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.tsPct, 1)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {formatDelta(selectedPlayer.deltas.threePar, 3)}
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[#eceef2]">
+                      {formatDelta(selectedPlayer.deltas.ftr, 3)}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.orbPct > 0.4
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.orbPct < -0.4
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.orbPct, 1)}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.drbPct > 0.5
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.drbPct < -0.5
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.drbPct, 1)}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.trbPct > 0.5
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.trbPct < -0.5
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.trbPct, 1)}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.astPct > 0.8
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.astPct < -0.8
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.astPct, 1)}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.stlPct > 0.2
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.stlPct < -0.2
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.stlPct, 1)}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.blkPct > 0.2
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.blkPct < -0.2
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.blkPct, 1)}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.tovPct < -0.5
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.tovPct > 0.5
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.tovPct, 1)}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.usgPct > 0.8
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.usgPct < -0.8
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.usgPct, 1)}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.per > 0.5
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.per < -0.5
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.per, 1)}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.ows > 0.2
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.ows < -0.2
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.ows, 1)}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.dws > 0.2
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.dws < -0.2
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.dws, 1)}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.ws > 0.3
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.ws < -0.3
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.ws, 1)}
+                    </td>
+                    <td
+                      className={`px-2.5 py-2.5 ${
+                        selectedPlayer.deltas.ws48 > 0.01
+                          ? "text-[#5ee89a]"
+                          : selectedPlayer.deltas.ws48 < -0.01
+                          ? "text-[#f85149]"
+                          : "text-[#8b9099]"
+                      }`}
+                    >
+                      {formatDelta(selectedPlayer.deltas.ws48, 3)}
+                    </td>
+                  </>
+                ) : (
+                  <td
+                    colSpan={18}
+                    className="px-3 py-2.5 text-left font-sans font-normal text-xs text-[#8b9099] italic"
+                  >
+                    — Sin comparación disponible (el jugador solo ha debutado en{" "}
+                    {hasAnba ? "ANBA 2K" : "la NBA Real"})
+                  </td>
+                )}
               </tr>
             </tbody>
           </table>

@@ -580,9 +580,12 @@ def fetch_nba_live_season(season_year: int = 2027) -> pd.DataFrame:
 
 
 def compute_radar_percentiles(players: List[Dict[str, Any]], min_mp_threshold: float = 8.0) -> None:
-    eligible = [p for p in players if p["anba"]["mp"] >= min_mp_threshold and p["nba"]["mp"] >= min_mp_threshold]
-    if len(eligible) < 15:
-        eligible = players
+    anba_eligible = [p for p in players if p["anba"]["mp"] >= min_mp_threshold]
+    nba_eligible = [p for p in players if p["nba"]["mp"] >= min_mp_threshold]
+    if len(anba_eligible) < 10:
+        anba_eligible = [p for p in players if p["anba"]["g"] > 0] or players
+    if len(nba_eligible) < 10:
+        nba_eligible = [p for p in players if p["nba"]["g"] > 0] or players
 
     def score_for(block: Dict[str, float]) -> Dict[str, float]:
         return {
@@ -598,92 +601,126 @@ def compute_radar_percentiles(players: List[Dict[str, Any]], min_mp_threshold: f
     anba_raw = {dim: [] for dim in dims}
     nba_raw = {dim: [] for dim in dims}
 
-    for p in eligible:
+    for p in anba_eligible:
         a_s = score_for(p["anba"])
-        n_s = score_for(p["nba"])
         for dim in dims:
             anba_raw[dim].append(a_s[dim])
+
+    for p in nba_eligible:
+        n_s = score_for(p["nba"])
+        for dim in dims:
             nba_raw[dim].append(n_s[dim])
 
     for p in players:
         a_s = score_for(p["anba"])
         n_s = score_for(p["nba"])
         p["radar"] = {"anba": {}, "nba": {}}
+        has_anba = p["anba"]["g"] > 0 and p["anba"]["mp"] > 0
+        has_nba = p["nba"]["g"] > 0 and p["nba"]["mp"] > 0
         for dim in dims:
-            p["radar"]["anba"][dim] = round(float(percentileofscore(anba_raw[dim], a_s[dim], kind="rank")), 1)
-            p["radar"]["nba"][dim] = round(float(percentileofscore(nba_raw[dim], n_s[dim], kind="rank")), 1)
+            p["radar"]["anba"][dim] = round(float(percentileofscore(anba_raw[dim], a_s[dim], kind="rank")), 1) if has_anba else 0.0
+            p["radar"]["nba"][dim] = round(float(percentileofscore(nba_raw[dim], n_s[dim], kind="rank")), 1) if has_nba else 0.0
 
 
 def compute_cross_player_clones(players: List[Dict[str, Any]], min_mp_threshold: float = 8.0) -> None:
-    pool = [p for p in players if p["anba"]["mp"] >= min_mp_threshold and p["nba"]["mp"] >= min_mp_threshold]
-    if len(pool) < 10:
-        pool = players
+    nba_pool = [p for p in players if p["nba"]["mp"] >= min_mp_threshold]
+    anba_pool = [p for p in players if p["anba"]["mp"] >= min_mp_threshold]
+    if len(nba_pool) < 10:
+        nba_pool = [p for p in players if p["nba"]["g"] > 0] or players
+    if len(anba_pool) < 10:
+        anba_pool = [p for p in players if p["anba"]["g"] > 0] or players
 
     # Usar exactamente la misma fórmula de las 8 métricas por partido que el % de Similitud Global
     features = ["pts", "trb", "ast", "tsPct", "fg3", "stl", "blk", "mp"]
     scales = np.array([8.0, 4.0, 3.2, 12.0, 1.8, 1.0, 1.2, 10.0], dtype=float)
     weights = np.array([0.25, 0.18, 0.18, 0.12, 0.09, 0.06, 0.06, 0.06], dtype=float)
 
-    nba_matrix = np.array([[p["nba"][f] for f in features] for p in pool], dtype=float)
-    anba_matrix = np.array([[p["anba"][f] for f in features] for p in pool], dtype=float)
+    nba_matrix = np.array([[p["nba"][f] for f in features] for p in nba_pool], dtype=float)
+    anba_matrix = np.array([[p["anba"][f] for f in features] for p in anba_pool], dtype=float)
 
     for p in players:
-        p_anba_vec = np.array([p["anba"][f] for f in features], dtype=float)
-        diffs_to_nba = np.sum(weights * (np.abs(nba_matrix - p_anba_vec) / scales), axis=1)
-        sims_to_nba = np.clip(100.0 * np.exp(-0.48 * diffs_to_nba), 5.0, 99.5)
+        has_anba = p["anba"]["g"] > 0 and p["anba"]["mp"] > 0
+        has_nba = p["nba"]["g"] > 0 and p["nba"]["mp"] > 0
 
-        order_nba = np.argsort(-sims_to_nba)
         nba_clones = []
-        for idx in order_nba:
-            cand = pool[idx]
-            if cand["id"] == p["id"]:
-                continue
-            nba_clones.append({
-                "id": cand["id"],
-                "name": cand["name"],
-                "nbaTeam": cand["nbaTeam"],
-                "anbaTeam": cand["anbaTeam"],
-                "pos": cand["pos"],
-                "similarity": round(float(sims_to_nba[idx]), 1),
-                "pts": cand["nba"]["pts"],
-                "trb": cand["nba"]["trb"],
-                "ast": cand["nba"]["ast"],
-                "tsPct": cand["nba"]["tsPct"],
-                "gameScore": cand["nba"]["gameScore"],
-            })
-            if len(nba_clones) >= 5:
-                break
+        if has_anba:
+            p_anba_vec = np.array([p["anba"][f] for f in features], dtype=float)
+            diffs_to_nba = np.sum(weights * (np.abs(nba_matrix - p_anba_vec) / scales), axis=1)
+            sims_to_nba = np.clip(100.0 * np.exp(-0.48 * diffs_to_nba), 5.0, 99.5)
 
-        p_nba_vec = np.array([p["nba"][f] for f in features], dtype=float)
-        diffs_to_anba = np.sum(weights * (np.abs(anba_matrix - p_nba_vec) / scales), axis=1)
-        sims_to_anba = np.clip(100.0 * np.exp(-0.48 * diffs_to_anba), 5.0, 99.5)
+            order_nba = np.argsort(-sims_to_nba)
+            for idx in order_nba:
+                cand = nba_pool[idx]
+                if cand["id"] == p["id"]:
+                    continue
+                nba_clones.append({
+                    "id": cand["id"],
+                    "name": cand["name"],
+                    "nbaTeam": cand["nbaTeam"],
+                    "anbaTeam": cand["anbaTeam"],
+                    "pos": cand["pos"],
+                    "similarity": round(float(sims_to_nba[idx]), 1),
+                    "pts": cand["nba"]["pts"],
+                    "trb": cand["nba"]["trb"],
+                    "ast": cand["nba"]["ast"],
+                    "tsPct": cand["nba"]["tsPct"],
+                    "gameScore": cand["nba"]["gameScore"],
+                })
+                if len(nba_clones) >= 5:
+                    break
 
-        order_anba = np.argsort(-sims_to_anba)
         anba_clones = []
-        for idx in order_anba:
-            cand = pool[idx]
-            if cand["id"] == p["id"]:
-                continue
-            anba_clones.append({
-                "id": cand["id"],
-                "name": cand["name"],
-                "anbaTeam": cand["anbaTeam"],
-                "nbaTeam": cand["nbaTeam"],
-                "pos": cand["pos"],
-                "similarity": round(float(sims_to_anba[idx]), 1),
-                "pts": cand["anba"]["pts"],
-                "trb": cand["anba"]["trb"],
-                "ast": cand["anba"]["ast"],
-                "tsPct": cand["anba"]["tsPct"],
-                "gameScore": cand["anba"]["gameScore"],
-            })
-            if len(anba_clones) >= 5:
-                break
+        if has_nba:
+            p_nba_vec = np.array([p["nba"][f] for f in features], dtype=float)
+            diffs_to_anba = np.sum(weights * (np.abs(anba_matrix - p_nba_vec) / scales), axis=1)
+            sims_to_anba = np.clip(100.0 * np.exp(-0.48 * diffs_to_anba), 5.0, 99.5)
+
+            order_anba = np.argsort(-sims_to_anba)
+            for idx in order_anba:
+                cand = anba_pool[idx]
+                if cand["id"] == p["id"]:
+                    continue
+                anba_clones.append({
+                    "id": cand["id"],
+                    "name": cand["name"],
+                    "anbaTeam": cand["anbaTeam"],
+                    "nbaTeam": cand["nbaTeam"],
+                    "pos": cand["pos"],
+                    "similarity": round(float(sims_to_anba[idx]), 1),
+                    "pts": cand["anba"]["pts"],
+                    "trb": cand["anba"]["trb"],
+                    "ast": cand["anba"]["ast"],
+                    "tsPct": cand["anba"]["tsPct"],
+                    "gameScore": cand["anba"]["gameScore"],
+                })
+                if len(anba_clones) >= 5:
+                    break
 
         p["clones"] = {
             "nbaRealClones": nba_clones,
             "anbaVirtualClones": anba_clones,
         }
+
+
+def build_empty_stat_block() -> Dict[str, float]:
+    return build_stat_block(
+        g=0.0, gs=0.0, mp=0.0, pts=0.0, orb=0.0, drb=0.0, ast=0.0,
+        stl=0.0, blk=0.0, tov=0.0, pf=0.0, fg=0.0, fga=0.0,
+        fg3=0.0, fg3a=0.0, ft=0.0, fta=0.0, plus_minus=0.0, adv={},
+    )
+
+
+def build_zero_deltas() -> Dict[str, float]:
+    return {
+        "mp": 0.0, "pts": 0.0, "trb": 0.0, "orb": 0.0, "drb": 0.0,
+        "ast": 0.0, "stl": 0.0, "blk": 0.0, "tov": 0.0,
+        "fgPct": 0.0, "fg3Pct": 0.0, "ftPct": 0.0, "tsPct": 0.0, "efgPct": 0.0,
+        "gameScore": 0.0, "pts36": 0.0, "trb36": 0.0, "ast36": 0.0,
+        "fg3aRate": 0.0, "ftaRate": 0.0, "threePar": 0.0, "ftr": 0.0,
+        "orbPct": 0.0, "drbPct": 0.0, "trbPct": 0.0, "astPct": 0.0,
+        "stlPct": 0.0, "blkPct": 0.0, "tovPct": 0.0, "usgPct": 0.0,
+        "per": 0.0, "ows": 0.0, "dws": 0.0, "ws": 0.0, "ws48": 0.0,
+    }
 
 
 def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, season_label: str) -> Dict[str, Any]:
@@ -708,210 +745,267 @@ def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, seaso
     nba_df = fetch_nba_live_season(nba_season_year)
     nba_by_key = {row["norm_key"]: row for _, row in nba_df.iterrows()}
 
-    matched_records = []
+    all_records: List[tuple] = []
+    seen_anba_nkeys: set = set()
+
+    # 1. Todos los jugadores que han debutado en ANBA (con o sin debut en NBA)
     for ap in anba_players_raw:
+        mp_a = float(ap.get("minutes") or 0.0)
+        gp_a = float(ap.get("gamesPlayed") or 0.0)
+        if mp_a <= 0 or gp_a <= 0:
+            continue
+
         pname = str(ap.get("playerName", "")).strip()
         nkey = normalize_player_key(pname)
-        if nkey not in nba_by_key:
-            continue
-        nrow = nba_by_key[nkey]
-
-        mp_a = float(ap.get("minutes") or 0.0)
-        mp_n = float(nrow.get("MP") or 0.0)
-        if mp_a <= 0 or mp_n <= 0:
-            continue
+        seen_anba_nkeys.add(nkey)
 
         pid = str(ap.get("playerId") or "")
         tid = str(ap.get("teamId") or "")
         ap_adv = anba_adv_by_id_team.get((pid, tid)) or anba_adv_by_key.get(nkey) or {}
 
-        matched_records.append((ap, ap_adv, nrow))
+        nrow = nba_by_key.get(nkey)
+        if nrow is not None and float(nrow.get("MP") or 0.0) > 0 and float(nrow.get("G") or 0.0) > 0:
+            all_records.append(("both", ap, ap_adv, nrow))
+        else:
+            all_records.append(("anba_only", ap, ap_adv, None))
+
+    # 2. Todos los jugadores que han debutado en NBA pero aún no han jugado en ANBA
+    for nkey, nrow in nba_by_key.items():
+        if nkey in seen_anba_nkeys:
+            continue
+        mp_n = float(nrow.get("MP") or 0.0)
+        gp_n = float(nrow.get("G") or 0.0)
+        if mp_n <= 0 or gp_n <= 0:
+            continue
+        all_records.append(("nba_only", None, {}, nrow))
 
     players_list: List[Dict[str, Any]] = []
     seen_slugs: Dict[str, int] = {}
 
-    for ap, ap_adv, nrow in matched_records:
-        raw_pos = str(ap.get("playerPosition") or nrow.get("Pos") or "SF").strip()
+    for league_status, ap, ap_adv, nrow in all_records:
+        raw_pos = str(
+            (ap.get("playerPosition") if ap is not None else None)
+            or (nrow.get("Pos") if nrow is not None else None)
+            or "SF"
+        ).strip()
         pos_code = POS_MAP.get(raw_pos, "SF")
         pos_es = POS_ES_MAP.get(pos_code, "Alero")
 
-        anba_team = str(ap.get("teamShortName") or "WAS").strip()
-        nba_team_raw = str(nrow.get("Team") or "NBA").strip()
-        nba_team = BR_ABBR_FIX.get(nba_team_raw, nba_team_raw)
+        if ap is not None:
+            anba_team = str(ap.get("teamShortName") or "WAS").strip()
+            anba_team_name = TEAM_META.get(anba_team, {}).get("name", anba_team)
+        else:
+            anba_team = "—"
+            anba_team_name = "Sin debutar en ANBA"
 
-        age_val = ap.get("age") or nrow.get("Age") or 25
+        if nrow is not None:
+            nba_team_raw = str(nrow.get("Team") or "NBA").strip()
+            nba_team = BR_ABBR_FIX.get(nba_team_raw, nba_team_raw)
+            nba_team_name = TEAM_META.get(nba_team, {}).get(
+                "name", "Multi-Equipo (NBA)" if nba_team in {"2TM", "3TM"} else nba_team
+            )
+        else:
+            nba_team = "—"
+            nba_team_name = "Sin debutar en NBA"
+
+        age_val = (ap.get("age") if ap is not None else None) or (nrow.get("Age") if nrow is not None else None) or 25
         try:
             age = int(float(age_val))
         except Exception:
             age = 25
 
-        anba_adv_mapped = {
-            "totalMp": safe_float(ap_adv.get("minutes")),
-            "tsPct": safe_float(ap_adv.get("trueShootingPct")),
-            "threePar": safe_float(ap_adv.get("threePointAttemptRate")),
-            "ftr": safe_float(ap_adv.get("freeThrowRate")),
-            "orbPct": safe_float(ap_adv.get("offensiveReboundPct")),
-            "drbPct": safe_float(ap_adv.get("defensiveReboundPct")),
-            "trbPct": safe_float(ap_adv.get("totalReboundPct")),
-            "astPct": safe_float(ap_adv.get("assistPct")),
-            "stlPct": safe_float(ap_adv.get("stealPct")),
-            "blkPct": safe_float(ap_adv.get("blockPct")),
-            "tovPct": safe_float(ap_adv.get("turnoverPct")),
-            "usgPct": safe_float(ap_adv.get("usagePct")),
-            "per": safe_float(ap_adv.get("playerEfficiencyRating")),
-            "ows": safe_float(ap_adv.get("offensiveWinShares")),
-            "dws": safe_float(ap_adv.get("defensiveWinShares")),
-            "ws": safe_float(ap_adv.get("winShares")),
-            "ws48": safe_float(ap_adv.get("winSharesPer48")),
-        }
+        if ap is not None:
+            anba_adv_mapped = {
+                "totalMp": safe_float(ap_adv.get("minutes")),
+                "tsPct": safe_float(ap_adv.get("trueShootingPct")),
+                "threePar": safe_float(ap_adv.get("threePointAttemptRate")),
+                "ftr": safe_float(ap_adv.get("freeThrowRate")),
+                "orbPct": safe_float(ap_adv.get("offensiveReboundPct")),
+                "drbPct": safe_float(ap_adv.get("defensiveReboundPct")),
+                "trbPct": safe_float(ap_adv.get("totalReboundPct")),
+                "astPct": safe_float(ap_adv.get("assistPct")),
+                "stlPct": safe_float(ap_adv.get("stealPct")),
+                "blkPct": safe_float(ap_adv.get("blockPct")),
+                "tovPct": safe_float(ap_adv.get("turnoverPct")),
+                "usgPct": safe_float(ap_adv.get("usagePct")),
+                "per": safe_float(ap_adv.get("playerEfficiencyRating")),
+                "ows": safe_float(ap_adv.get("offensiveWinShares")),
+                "dws": safe_float(ap_adv.get("defensiveWinShares")),
+                "ws": safe_float(ap_adv.get("winShares")),
+                "ws48": safe_float(ap_adv.get("winSharesPer48")),
+            }
+            anba_stats = build_stat_block(
+                g=float(ap.get("gamesPlayed") or 0),
+                gs=float(ap.get("gamesPlayed") or 0),
+                mp=float(ap.get("minutes") or 0),
+                pts=float(ap.get("pts") or 0),
+                orb=float(ap.get("offReb") or 0),
+                drb=float(ap.get("defReb") or 0),
+                ast=float(ap.get("ast") or 0),
+                stl=float(ap.get("stl") or 0),
+                blk=float(ap.get("blk") or 0),
+                tov=float(ap.get("tov") or 0),
+                pf=float(ap.get("pf") or 0),
+                fg=float(ap.get("fgMade") or 0),
+                fga=float(ap.get("fgAtt") or 0),
+                fg3=float(ap.get("threeMade") or 0),
+                fg3a=float(ap.get("threeAtt") or 0),
+                ft=float(ap.get("ftMade") or 0),
+                fta=float(ap.get("ftAtt") or 0),
+                plus_minus=float(ap.get("ml") or 0.0),
+                adv=anba_adv_mapped,
+            )
+        else:
+            anba_stats = build_empty_stat_block()
 
-        raw_nba_ts = safe_float(nrow.get("ADV_TS"))
-        if raw_nba_ts is not None and raw_nba_ts <= 1.5:
-            raw_nba_ts = raw_nba_ts * 100.0
+        if nrow is not None:
+            raw_nba_ts = safe_float(nrow.get("ADV_TS"))
+            if raw_nba_ts is not None and raw_nba_ts <= 1.5:
+                raw_nba_ts = raw_nba_ts * 100.0
 
-        nba_adv_mapped = {
-            "totalMp": safe_float(nrow.get("ADV_MP")),
-            "tsPct": raw_nba_ts,
-            "threePar": safe_float(nrow.get("ADV_3PAR")),
-            "ftr": safe_float(nrow.get("ADV_FTR")),
-            "orbPct": safe_float(nrow.get("ADV_ORB_PCT")),
-            "drbPct": safe_float(nrow.get("ADV_DRB_PCT")),
-            "trbPct": safe_float(nrow.get("ADV_TRB_PCT")),
-            "astPct": safe_float(nrow.get("ADV_AST_PCT")),
-            "stlPct": safe_float(nrow.get("ADV_STL_PCT")),
-            "blkPct": safe_float(nrow.get("ADV_BLK_PCT")),
-            "tovPct": safe_float(nrow.get("ADV_TOV_PCT")),
-            "usgPct": safe_float(nrow.get("ADV_USG_PCT")),
-            "per": safe_float(nrow.get("ADV_PER")),
-            "ows": safe_float(nrow.get("ADV_OWS")),
-            "dws": safe_float(nrow.get("ADV_DWS")),
-            "ws": safe_float(nrow.get("ADV_WS")),
-            "ws48": safe_float(nrow.get("ADV_WS48")),
-        }
+            nba_adv_mapped = {
+                "totalMp": safe_float(nrow.get("ADV_MP")),
+                "tsPct": raw_nba_ts,
+                "threePar": safe_float(nrow.get("ADV_3PAR")),
+                "ftr": safe_float(nrow.get("ADV_FTR")),
+                "orbPct": safe_float(nrow.get("ADV_ORB_PCT")),
+                "drbPct": safe_float(nrow.get("ADV_DRB_PCT")),
+                "trbPct": safe_float(nrow.get("ADV_TRB_PCT")),
+                "astPct": safe_float(nrow.get("ADV_AST_PCT")),
+                "stlPct": safe_float(nrow.get("ADV_STL_PCT")),
+                "blkPct": safe_float(nrow.get("ADV_BLK_PCT")),
+                "tovPct": safe_float(nrow.get("ADV_TOV_PCT")),
+                "usgPct": safe_float(nrow.get("ADV_USG_PCT")),
+                "per": safe_float(nrow.get("ADV_PER")),
+                "ows": safe_float(nrow.get("ADV_OWS")),
+                "dws": safe_float(nrow.get("ADV_DWS")),
+                "ws": safe_float(nrow.get("ADV_WS")),
+                "ws48": safe_float(nrow.get("ADV_WS48")),
+            }
+            nba_stats = build_stat_block(
+                g=float(nrow.get("G") or 0),
+                gs=float(nrow.get("GS") or 0),
+                mp=float(nrow.get("MP") or 0),
+                pts=float(nrow.get("PTS") or 0),
+                orb=float(nrow.get("ORB") or 0),
+                drb=float(nrow.get("DRB") or 0),
+                ast=float(nrow.get("AST") or 0),
+                stl=float(nrow.get("STL") or 0),
+                blk=float(nrow.get("BLK") or 0),
+                tov=float(nrow.get("TOV") or 0),
+                pf=float(nrow.get("PF") or 0),
+                fg=float(nrow.get("FG") or 0),
+                fga=float(nrow.get("FGA") or 0),
+                fg3=float(nrow.get("3P") or 0),
+                fg3a=float(nrow.get("3PA") or 0),
+                ft=float(nrow.get("FT") or 0),
+                fta=float(nrow.get("FTA") or 0),
+                plus_minus=0.0,
+                adv=nba_adv_mapped,
+            )
+        else:
+            nba_stats = build_empty_stat_block()
 
-        anba_stats = build_stat_block(
-            g=float(ap.get("gamesPlayed") or 0),
-            gs=float(ap.get("gamesPlayed") or 0),
-            mp=float(ap.get("minutes") or 0),
-            pts=float(ap.get("pts") or 0),
-            orb=float(ap.get("offReb") or 0),
-            drb=float(ap.get("defReb") or 0),
-            ast=float(ap.get("ast") or 0),
-            stl=float(ap.get("stl") or 0),
-            blk=float(ap.get("blk") or 0),
-            tov=float(ap.get("tov") or 0),
-            pf=float(ap.get("pf") or 0),
-            fg=float(ap.get("fgMade") or 0),
-            fga=float(ap.get("fgAtt") or 0),
-            fg3=float(ap.get("threeMade") or 0),
-            fg3a=float(ap.get("threeAtt") or 0),
-            ft=float(ap.get("ftMade") or 0),
-            fta=float(ap.get("ftAtt") or 0),
-            plus_minus=float(ap.get("ml") or 0.0),
-            adv=anba_adv_mapped,
+        if league_status == "both":
+            # Cálculo de Similitud Real Absoluta (0-100%) basada en las 8 métricas clave por partido
+            sim_components = [
+                (abs(anba_stats["pts"] - nba_stats["pts"]) / 8.0, 0.25),
+                (abs(anba_stats["trb"] - nba_stats["trb"]) / 4.0, 0.18),
+                (abs(anba_stats["ast"] - nba_stats["ast"]) / 3.2, 0.18),
+                (abs(anba_stats["tsPct"] - nba_stats["tsPct"]) / 12.0, 0.12),
+                (abs(anba_stats["fg3"] - nba_stats["fg3"]) / 1.8, 0.09),
+                (abs(anba_stats["stl"] - nba_stats["stl"]) / 1.0, 0.06),
+                (abs(anba_stats["blk"] - nba_stats["blk"]) / 1.2, 0.06),
+                (abs(anba_stats["mp"] - nba_stats["mp"]) / 10.0, 0.06),
+            ]
+            weighted_dist = sum(d * w for d, w in sim_components)
+            score_final = round(float(max(5.0, min(99.5, 100.0 * np.exp(-0.48 * weighted_dist)))), 1)
+
+            deltas = {
+                "mp": round(anba_stats["mp"] - nba_stats["mp"], 2),
+                "pts": round(anba_stats["pts"] - nba_stats["pts"], 2),
+                "trb": round(anba_stats["trb"] - nba_stats["trb"], 2),
+                "orb": round(anba_stats["orb"] - nba_stats["orb"], 2),
+                "drb": round(anba_stats["drb"] - nba_stats["drb"], 2),
+                "ast": round(anba_stats["ast"] - nba_stats["ast"], 2),
+                "stl": round(anba_stats["stl"] - nba_stats["stl"], 2),
+                "blk": round(anba_stats["blk"] - nba_stats["blk"], 2),
+                "tov": round(anba_stats["tov"] - nba_stats["tov"], 2),
+                "fgPct": round(anba_stats["fgPct"] - nba_stats["fgPct"], 1),
+                "fg3Pct": round(anba_stats["fg3Pct"] - nba_stats["fg3Pct"], 1),
+                "ftPct": round(anba_stats["ftPct"] - nba_stats["ftPct"], 1),
+                "tsPct": round(anba_stats["tsPct"] - nba_stats["tsPct"], 1),
+                "efgPct": round(anba_stats["efgPct"] - nba_stats["efgPct"], 1),
+                "gameScore": round(anba_stats["gameScore"] - nba_stats["gameScore"], 2),
+                "pts36": round(anba_stats["pts36"] - nba_stats["pts36"], 2),
+                "trb36": round(anba_stats["trb36"] - nba_stats["trb36"], 2),
+                "ast36": round(anba_stats["ast36"] - nba_stats["ast36"], 2),
+                "fg3aRate": round(anba_stats["fg3aRate"] - nba_stats["fg3aRate"], 1),
+                "ftaRate": round(anba_stats["ftaRate"] - nba_stats["ftaRate"], 1),
+                "threePar": round(anba_stats["threePar"] - nba_stats["threePar"], 3),
+                "ftr": round(anba_stats["ftr"] - nba_stats["ftr"], 3),
+                "orbPct": round(anba_stats["orbPct"] - nba_stats["orbPct"], 1),
+                "drbPct": round(anba_stats["drbPct"] - nba_stats["drbPct"], 1),
+                "trbPct": round(anba_stats["trbPct"] - nba_stats["trbPct"], 1),
+                "astPct": round(anba_stats["astPct"] - nba_stats["astPct"], 1),
+                "stlPct": round(anba_stats["stlPct"] - nba_stats["stlPct"], 1),
+                "blkPct": round(anba_stats["blkPct"] - nba_stats["blkPct"], 1),
+                "tovPct": round(anba_stats["tovPct"] - nba_stats["tovPct"], 1),
+                "usgPct": round(anba_stats["usgPct"] - nba_stats["usgPct"], 1),
+                "per": round(anba_stats["per"] - nba_stats["per"], 1),
+                "ows": round(anba_stats["ows"] - nba_stats["ows"], 1),
+                "dws": round(anba_stats["dws"] - nba_stats["dws"], 1),
+                "ws": round(anba_stats["ws"] - nba_stats["ws"], 1),
+                "ws48": round(anba_stats["ws48"] - nba_stats["ws48"], 3),
+            }
+        else:
+            score_final = 0.0
+            deltas = build_zero_deltas()
+
+        player_name = str(
+            (ap.get("playerName") if ap is not None else None)
+            or (nrow.get("Player") if nrow is not None else "")
+        ).strip()
+        base_slug = str(
+            (ap.get("playerSlug") if ap is not None else None)
+            or re.sub(r"[^a-z0-9]+", "-", normalize_player_key(player_name)).strip("-")
         )
-
-        nba_stats = build_stat_block(
-            g=float(nrow.get("G") or 0),
-            gs=float(nrow.get("GS") or 0),
-            mp=float(nrow.get("MP") or 0),
-            pts=float(nrow.get("PTS") or 0),
-            orb=float(nrow.get("ORB") or 0),
-            drb=float(nrow.get("DRB") or 0),
-            ast=float(nrow.get("AST") or 0),
-            stl=float(nrow.get("STL") or 0),
-            blk=float(nrow.get("BLK") or 0),
-            tov=float(nrow.get("TOV") or 0),
-            pf=float(nrow.get("PF") or 0),
-            fg=float(nrow.get("FG") or 0),
-            fga=float(nrow.get("FGA") or 0),
-            fg3=float(nrow.get("3P") or 0),
-            fg3a=float(nrow.get("3PA") or 0),
-            ft=float(nrow.get("FT") or 0),
-            fta=float(nrow.get("FTA") or 0),
-            plus_minus=0.0,
-            adv=nba_adv_mapped,
-        )
-
-        # Cálculo de Similitud Real Absoluta (0-100%) basada en las 8 métricas clave por partido
-        # Evita castigar por el menor volumen de tiros libres del motor 2K o por ranking percentil forzado
-        sim_components = [
-            (abs(anba_stats["pts"] - nba_stats["pts"]) / 8.0, 0.25),
-            (abs(anba_stats["trb"] - nba_stats["trb"]) / 4.0, 0.18),
-            (abs(anba_stats["ast"] - nba_stats["ast"]) / 3.2, 0.18),
-            (abs(anba_stats["tsPct"] - nba_stats["tsPct"]) / 12.0, 0.12),
-            (abs(anba_stats["fg3"] - nba_stats["fg3"]) / 1.8, 0.09),
-            (abs(anba_stats["stl"] - nba_stats["stl"]) / 1.0, 0.06),
-            (abs(anba_stats["blk"] - nba_stats["blk"]) / 1.2, 0.06),
-            (abs(anba_stats["mp"] - nba_stats["mp"]) / 10.0, 0.06),
-        ]
-        weighted_dist = sum(d * w for d, w in sim_components)
-        score_final = round(float(max(5.0, min(99.5, 100.0 * np.exp(-0.48 * weighted_dist)))), 1)
-
-        deltas = {
-            "mp": round(anba_stats["mp"] - nba_stats["mp"], 2),
-            "pts": round(anba_stats["pts"] - nba_stats["pts"], 2),
-            "trb": round(anba_stats["trb"] - nba_stats["trb"], 2),
-            "orb": round(anba_stats["orb"] - nba_stats["orb"], 2),
-            "drb": round(anba_stats["drb"] - nba_stats["drb"], 2),
-            "ast": round(anba_stats["ast"] - nba_stats["ast"], 2),
-            "stl": round(anba_stats["stl"] - nba_stats["stl"], 2),
-            "blk": round(anba_stats["blk"] - nba_stats["blk"], 2),
-            "tov": round(anba_stats["tov"] - nba_stats["tov"], 2),
-            "fgPct": round(anba_stats["fgPct"] - nba_stats["fgPct"], 1),
-            "fg3Pct": round(anba_stats["fg3Pct"] - nba_stats["fg3Pct"], 1),
-            "ftPct": round(anba_stats["ftPct"] - nba_stats["ftPct"], 1),
-            "tsPct": round(anba_stats["tsPct"] - nba_stats["tsPct"], 1),
-            "efgPct": round(anba_stats["efgPct"] - nba_stats["efgPct"], 1),
-            "gameScore": round(anba_stats["gameScore"] - nba_stats["gameScore"], 2),
-            "pts36": round(anba_stats["pts36"] - nba_stats["pts36"], 2),
-            "trb36": round(anba_stats["trb36"] - nba_stats["trb36"], 2),
-            "ast36": round(anba_stats["ast36"] - nba_stats["ast36"], 2),
-            "fg3aRate": round(anba_stats["fg3aRate"] - nba_stats["fg3aRate"], 1),
-            "ftaRate": round(anba_stats["ftaRate"] - nba_stats["ftaRate"], 1),
-            "threePar": round(anba_stats["threePar"] - nba_stats["threePar"], 3),
-            "ftr": round(anba_stats["ftr"] - nba_stats["ftr"], 3),
-            "orbPct": round(anba_stats["orbPct"] - nba_stats["orbPct"], 1),
-            "drbPct": round(anba_stats["drbPct"] - nba_stats["drbPct"], 1),
-            "trbPct": round(anba_stats["trbPct"] - nba_stats["trbPct"], 1),
-            "astPct": round(anba_stats["astPct"] - nba_stats["astPct"], 1),
-            "stlPct": round(anba_stats["stlPct"] - nba_stats["stlPct"], 1),
-            "blkPct": round(anba_stats["blkPct"] - nba_stats["blkPct"], 1),
-            "tovPct": round(anba_stats["tovPct"] - nba_stats["tovPct"], 1),
-            "usgPct": round(anba_stats["usgPct"] - nba_stats["usgPct"], 1),
-            "per": round(anba_stats["per"] - nba_stats["per"], 1),
-            "ows": round(anba_stats["ows"] - nba_stats["ows"], 1),
-            "dws": round(anba_stats["dws"] - nba_stats["dws"], 1),
-            "ws": round(anba_stats["ws"] - nba_stats["ws"], 1),
-            "ws48": round(anba_stats["ws48"] - nba_stats["ws48"], 3),
-        }
-
-        player_name = str(ap.get("playerName") or nrow.get("Player")).strip()
-        base_slug = str(ap.get("playerSlug") or re.sub(r"[^a-z0-9]+", "-", normalize_player_key(player_name)).strip("-"))
         seen_slugs[base_slug] = seen_slugs.get(base_slug, 0) + 1
-        slug = base_slug if seen_slugs[base_slug] == 1 else f"{base_slug}-{anba_team.lower()}"
+        team_suffix = anba_team.lower() if anba_team != "—" else nba_team.lower()
+        slug = base_slug if seen_slugs[base_slug] == 1 else f"{base_slug}-{team_suffix}"
 
-        p_img = ap.get("playerImg")
-        avatar_url = f"https://anba2k.es/storage/{p_img}" if p_img else str(nrow.get("headshot") or "")
+        p_img = ap.get("playerImg") if ap is not None else None
+        avatar_url = (
+            f"https://anba2k.es/storage/{p_img}"
+            if p_img
+            else str((nrow.get("headshot") if nrow is not None else "") or "")
+        )
 
         players_list.append({
             "id": slug,
             "name": player_name,
             "avatarUrl": avatar_url,
+            "leagueStatus": league_status,
             "pos": pos_code,
             "posEs": pos_es,
             "age": age,
             "anbaTeam": anba_team,
-            "anbaTeamName": TEAM_META.get(anba_team, {}).get("name", anba_team),
+            "anbaTeamName": anba_team_name,
             "nbaTeam": nba_team,
-            "nbaTeamName": TEAM_META.get(nba_team, {}).get("name", "Multi-Equipo (NBA)" if nba_team in {"2TM", "3TM"} else nba_team),
+            "nbaTeamName": nba_team_name,
             "similarityScore": score_final,
             "anba": anba_stats,
             "nba": nba_stats,
             "deltas": deltas,
         })
 
-    players_list.sort(key=lambda x: x["anba"]["pts"], reverse=True)
+    # Ordenar primero los que han debutado en ambas ligas (por PTS ANBA), luego el resto por puntos máximos
+    players_list.sort(
+        key=lambda x: (
+            0 if x["leagueStatus"] == "both" else 1,
+            -max(x["anba"]["pts"], x["nba"]["pts"]),
+        )
+    )
     compute_radar_percentiles(players_list, min_mp_threshold=6.0)
     compute_cross_player_clones(players_list, min_mp_threshold=6.0)
 
@@ -942,7 +1036,7 @@ def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, seaso
         ts_pct = safe_div(pts, 2.0 * (fga + 0.44 * fta), 100.0)
         fg3a_rate = safe_div(fg3a, fga, 100.0)
 
-        roster_players = [p for p in players_list if p["anbaTeam"] == abbr]
+        roster_players = [p for p in players_list if p["anbaTeam"] == abbr and p["leagueStatus"] == "both"]
         avg_sim = round(float(np.mean([p["similarityScore"] for p in roster_players])), 1) if roster_players else 50.0
         avg_gmsc_delta = round(float(np.mean([p["deltas"]["gameScore"] for p in roster_players])), 2) if roster_players else 0.0
 

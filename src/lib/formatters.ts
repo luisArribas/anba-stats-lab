@@ -37,6 +37,21 @@ export interface PlayerDiagnosis {
 }
 
 export function diagnosePlayer(p: PlayerComparison): PlayerDiagnosis {
+  if (p.leagueStatus === "anba_only" || p.nba.g === 0) {
+    return {
+      label: "Solo en ANBA 2K · Sin debutar en NBA",
+      description: `Ha jugado ${p.anba.g} PJ en ANBA 2K (${p.anba.pts.toFixed(1)} PTS), pero aún no ha debutado en la NBA Real esta temporada.`,
+      tone: "indigo",
+    };
+  }
+  if (p.leagueStatus === "nba_only" || p.anba.g === 0) {
+    return {
+      label: "Solo en NBA Real · Sin debutar en ANBA",
+      description: `Ha jugado ${p.nba.g} PJ en la NBA Real (${p.nba.pts.toFixed(1)} PTS), pero aún no ha disputado partidos en ANBA 2K esta temporada.`,
+      tone: "orange",
+    };
+  }
+
   const dGmSc = p.deltas.gameScore;
   const dMp = p.deltas.mp;
   const sim = p.similarityScore;

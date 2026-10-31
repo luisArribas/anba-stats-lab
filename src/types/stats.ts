@@ -85,6 +85,7 @@ export interface PlayerComparison {
   id: string;
   name: string;
   avatarUrl?: string;
+  leagueStatus?: "both" | "anba_only" | "nba_only";
   pos: "PG" | "SG" | "SF" | "PF" | "C";
   posEs: string;
   age: number;
