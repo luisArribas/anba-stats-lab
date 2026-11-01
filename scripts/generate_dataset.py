@@ -372,6 +372,7 @@ def fetch_anba_live_season(season_slug: str = "2026-2027") -> Dict[str, Any]:
     - Estadísticas por partido (todos los jugadores con elegibles=0)
     - Estadísticas avanzadas (mode=advanced&elegibles=0)
     - Estadísticas de equipos (por partido y avanzadas)
+    - Clasificación oficial (récord W-L y nombre del Mánager ANBA)
     """
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     url_p = f"{ANBA_BASE_URL}/estadisticas/__data.json?tab=players&elegibles=0&season={season_slug}"
@@ -395,11 +396,227 @@ def fetch_anba_live_season(season_slug: str = "2026-2027") -> Dict[str, Any]:
     data_t = unflatten_devalue(raw_t["nodes"][2]["data"])
     team_stats = data_t.get("teamStats", [])
 
+    team_adv_stats = []
+    try:
+        url_ta = f"{ANBA_BASE_URL}/estadisticas/__data.json?tab=teams&teamMode=advanced&season={season_slug}"
+        resp_ta = requests.get(url_ta, headers=headers, timeout=15)
+        if resp_ta.status_code == 200:
+            raw_ta = resp_ta.json()
+            data_ta = unflatten_devalue(raw_ta["nodes"][2]["data"])
+            team_adv_stats = data_ta.get("teamAdvancedStats", []) or []
+    except Exception as e:
+        print(f"[Info] No se pudo obtener teamAdvancedStats de ANBA ({e})")
+
+    standings_by_abbr: Dict[str, Dict[str, Any]] = {}
+    try:
+        url_st = f"{ANBA_BASE_URL}/competicion/{season_slug}/temporada-regular/clasificacion/__data.json"
+        resp_st = requests.get(url_st, headers=headers, timeout=15)
+        if resp_st.status_code == 200:
+            raw_st = resp_st.json()
+            for node in raw_st.get("nodes", []):
+                if not node or "data" not in node:
+                    continue
+                d_st = unflatten_devalue(node["data"])
+                if isinstance(d_st, dict) and "all" in d_st and isinstance(d_st["all"], list):
+                    for row in d_st["all"]:
+                        tm = row.get("team") if isinstance(row, dict) else None
+                        if isinstance(tm, dict):
+                            abbr_k = str(tm.get("teamShortName") or "").strip()
+                            if abbr_k:
+                                standings_by_abbr[abbr_k] = tm
+    except Exception as e:
+        print(f"[Info] No se pudo obtener clasificación ANBA ({e})")
+
     return {
         "players": player_stats,
         "playersAdvanced": player_adv_stats,
         "teams": team_stats,
+        "teamsAdvanced": team_adv_stats,
+        "standings": standings_by_abbr,
     }
+
+
+def fetch_nba_live_teams(season_year: int = 2027) -> Dict[str, Dict[str, Any]]:
+    """
+    Descarga las estadísticas por partido (per_game-team) y avanzadas (advanced-team)
+    de las 30 franquicias de la NBA desde Basketball-Reference (NBA_{season_year}.html).
+    """
+    teams_by_abbr: Dict[str, Dict[str, Any]] = {}
+    html = fetch_br_html(f"https://www.basketball-reference.com/leagues/NBA_{season_year}.html")
+    if not html:
+        return teams_by_abbr
+
+    try:
+        soup = BeautifulSoup(html, "lxml")
+        tb_pg = soup.find("table", {"id": "per_game-team"})
+        if tb_pg is not None:
+            df_pg = pd.read_html(str(tb_pg))[0]
+            for _, row in df_pg.iterrows():
+                tname = str(row.get("Team") or "").replace("*", "").strip()
+                abbr = NAME_TO_ABBR.get(tname)
+                if not abbr:
+                    continue
+                gp = float(pd.to_numeric(row.get("G"), errors="coerce") or 0)
+                fgm = float(pd.to_numeric(row.get("FG"), errors="coerce") or 0)
+                fga = float(pd.to_numeric(row.get("FGA"), errors="coerce") or 0)
+                fg_pct = float(pd.to_numeric(row.get("FG%"), errors="coerce") or 0) * 100.0
+                fg3m = float(pd.to_numeric(row.get("3P"), errors="coerce") or 0)
+                fg3a = float(pd.to_numeric(row.get("3PA"), errors="coerce") or 0)
+                fg3_pct = float(pd.to_numeric(row.get("3P%"), errors="coerce") or 0) * 100.0
+                ftm = float(pd.to_numeric(row.get("FT"), errors="coerce") or 0)
+                fta = float(pd.to_numeric(row.get("FTA"), errors="coerce") or 0)
+                ft_pct = float(pd.to_numeric(row.get("FT%"), errors="coerce") or 0) * 100.0
+                orb = float(pd.to_numeric(row.get("ORB"), errors="coerce") or 0)
+                drb = float(pd.to_numeric(row.get("DRB"), errors="coerce") or 0)
+                trb = float(pd.to_numeric(row.get("TRB"), errors="coerce") or 0)
+                ast = float(pd.to_numeric(row.get("AST"), errors="coerce") or 0)
+                stl = float(pd.to_numeric(row.get("STL"), errors="coerce") or 0)
+                blk = float(pd.to_numeric(row.get("BLK"), errors="coerce") or 0)
+                tov = float(pd.to_numeric(row.get("TOV"), errors="coerce") or 0)
+                pf = float(pd.to_numeric(row.get("PF"), errors="coerce") or 0)
+                pts = float(pd.to_numeric(row.get("PTS"), errors="coerce") or 0)
+
+                ts_pct = safe_div(pts, 2.0 * (fga + 0.44 * fta), 100.0)
+                fg3a_rate = safe_div(fg3a, fga, 100.0)
+
+                teams_by_abbr[abbr] = {
+                    "g": int(gp),
+                    "w": int(round(gp * 0.5)),
+                    "l": int(gp - round(gp * 0.5)),
+                    "wPct": 50.0,
+                    "pts": round(pts, 1),
+                    "fgm": round(fgm, 1),
+                    "fga": round(fga, 1),
+                    "fgPct": round(fg_pct, 1),
+                    "fg3m": round(fg3m, 1),
+                    "fg3a": round(fg3a, 1),
+                    "fg3Pct": round(fg3_pct, 1),
+                    "ftm": round(ftm, 1),
+                    "fta": round(fta, 1),
+                    "ftPct": round(ft_pct, 1),
+                    "orb": round(orb, 1),
+                    "drb": round(drb, 1),
+                    "trb": round(trb, 1),
+                    "ast": round(ast, 1),
+                    "stl": round(stl, 1),
+                    "blk": round(blk, 1),
+                    "tov": round(tov, 1),
+                    "pf": round(pf, 1),
+                    "plusMinus": 0.0,
+                    "ortg": 114.0,
+                    "drtg": 114.0,
+                    "nrtg": 0.0,
+                    "pace": 99.0,
+                    "threePar": round(safe_div(fg3a, fga, 1.0), 3),
+                    "ftr": round(safe_div(fta, fga, 1.0), 3),
+                    "tsPct": round(ts_pct, 1),
+                    "fg3aRate": round(fg3a_rate, 1),
+                    "offEfgPct": round(safe_div(fgm + 0.5 * fg3m, fga, 100.0), 1),
+                    "offTovPct": 12.5,
+                    "offOrbPct": 24.0,
+                    "offFtFga": round(safe_div(ftm, fga, 1.0), 3),
+                    "defEfgPct": 54.0,
+                    "defTovPct": 12.5,
+                    "defDrbPct": 76.0,
+                    "defFtFga": 0.200,
+                }
+
+        tb_adv = soup.find("table", {"id": "advanced-team"})
+        if tb_adv is not None:
+            df_adv = pd.read_html(str(tb_adv))[0]
+            # Flatten MultiIndex columns safely
+            flat_cols = []
+            for col in df_adv.columns:
+                if isinstance(col, tuple):
+                    lvl0, lvl1 = str(col[0]), str(col[1])
+                    if "Offense" in lvl0:
+                        flat_cols.append(f"OFF_{lvl1}")
+                    elif "Defense" in lvl0:
+                        flat_cols.append(f"DEF_{lvl1}")
+                    else:
+                        flat_cols.append(lvl1)
+                else:
+                    flat_cols.append(str(col))
+            df_adv.columns = flat_cols
+
+            for _, row in df_adv.iterrows():
+                tname = str(row.get("Team") or "").replace("*", "").strip()
+                abbr = NAME_TO_ABBR.get(tname)
+                if not abbr or abbr not in teams_by_abbr:
+                    continue
+                entry = teams_by_abbr[abbr]
+                w = int(float(pd.to_numeric(row.get("W"), errors="coerce") or 0))
+                l = int(float(pd.to_numeric(row.get("L"), errors="coerce") or 0))
+                gp = max(1, w + l)
+                entry["g"] = gp
+                entry["w"] = w
+                entry["l"] = l
+                entry["wPct"] = round((w / gp) * 100.0, 1)
+
+                mov = safe_float(row.get("MOV"))
+                ortg = safe_float(row.get("ORtg"))
+                drtg = safe_float(row.get("DRtg"))
+                nrtg = safe_float(row.get("NRtg"))
+                pace = safe_float(row.get("Pace"))
+                ftr = safe_float(row.get("FTr"))
+                tpar = safe_float(row.get("3PAr"))
+                ts = safe_float(row.get("TS%"))
+                if ts is not None and ts <= 1.5:
+                    ts = ts * 100.0
+
+                off_efg = safe_float(row.get("OFF_eFG%"))
+                if off_efg is not None and off_efg <= 1.5:
+                    off_efg = off_efg * 100.0
+                off_tov = safe_float(row.get("OFF_TOV%"))
+                off_orb = safe_float(row.get("OFF_ORB%"))
+                off_ftfga = safe_float(row.get("OFF_FT/FGA"))
+
+                def_efg = safe_float(row.get("DEF_eFG%"))
+                if def_efg is not None and def_efg <= 1.5:
+                    def_efg = def_efg * 100.0
+                def_tov = safe_float(row.get("DEF_TOV%"))
+                def_drb = safe_float(row.get("DEF_DRB%"))
+                def_ftfga = safe_float(row.get("DEF_FT/FGA"))
+
+                if mov is not None:
+                    entry["plusMinus"] = round(mov, 1)
+                if ortg is not None:
+                    entry["ortg"] = round(ortg, 1)
+                if drtg is not None:
+                    entry["drtg"] = round(drtg, 1)
+                if nrtg is not None:
+                    entry["nrtg"] = round(nrtg, 1)
+                elif ortg is not None and drtg is not None:
+                    entry["nrtg"] = round(ortg - drtg, 1)
+                if pace is not None:
+                    entry["pace"] = round(pace, 1)
+                if ftr is not None:
+                    entry["ftr"] = round(ftr, 3)
+                if tpar is not None:
+                    entry["threePar"] = round(tpar, 3)
+                    entry["fg3aRate"] = round(tpar * 100.0, 1)
+                if ts is not None:
+                    entry["tsPct"] = round(ts, 1)
+                if off_efg is not None:
+                    entry["offEfgPct"] = round(off_efg, 1)
+                if off_tov is not None:
+                    entry["offTovPct"] = round(off_tov, 1)
+                if off_orb is not None:
+                    entry["offOrbPct"] = round(off_orb, 1)
+                if off_ftfga is not None:
+                    entry["offFtFga"] = round(off_ftfga, 3)
+                if def_efg is not None:
+                    entry["defEfgPct"] = round(def_efg, 1)
+                if def_tov is not None:
+                    entry["defTovPct"] = round(def_tov, 1)
+                if def_drb is not None:
+                    entry["defDrbPct"] = round(def_drb, 1)
+                if def_ftfga is not None:
+                    entry["defFtFga"] = round(def_ftfga, 3)
+    except Exception as e:
+        print(f"[Info] Error parcial parseando equipos NBA ({e})")
+
+    return teams_by_abbr
 
 
 def fetch_nba_live_espn_api(season_year: int = 2027) -> pd.DataFrame:
@@ -1009,50 +1226,102 @@ def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, seaso
     compute_radar_percentiles(players_list, min_mp_threshold=6.0)
     compute_cross_player_clones(players_list, min_mp_threshold=6.0)
 
-    # Build teams list from live teamStats
-    teams_list: List[Dict[str, Any]] = []
-    for t in anba_teams_raw:
-        abbr = str(t.get("teamShortName") or "").strip()
-        if abbr not in TEAM_META:
-            continue
-        meta = TEAM_META[abbr]
-        gp = max(1, int(t.get("gamesPlayed") or 1))
-        pts = float(t.get("points") or 0) / gp
-        fgm = float(t.get("fgMade") or 0) / gp
-        fga = float(t.get("fgAttempted") or 0) / gp
-        fg3m = float(t.get("threeMade") or 0) / gp
-        fg3a = float(t.get("threeAttempted") or 0) / gp
-        ftm = float(t.get("ftMade") or 0) / gp
-        fta = float(t.get("ftAttempted") or 0) / gp
-        orb = float(t.get("offRebounds") or 0) / gp
-        drb = float(t.get("defRebounds") or 0) / gp
-        trb = float(t.get("totalRebounds") or 0) / gp
-        ast = float(t.get("assists") or 0) / gp
-        stl = float(t.get("steals") or 0) / gp
-        blk = float(t.get("blocks") or 0) / gp
-        tov = float(t.get("turnovers") or 0) / gp
-        pf = float(t.get("personalFouls") or 0) / gp
+    # Build teams list from live teamStats + teamAdvancedStats + standings + NBA real team stats
+    anba_teams_adv_raw = anba_live.get("teamsAdvanced", []) or []
+    anba_teams_adv_by_abbr = {
+        str(ta.get("teamShortName") or "").strip(): ta
+        for ta in anba_teams_adv_raw
+        if str(ta.get("teamShortName") or "").strip()
+    }
+    anba_standings_by_abbr = anba_live.get("standings", {}) or {}
+    anba_teams_pg_by_abbr = {
+        str(t.get("teamShortName") or "").strip(): t
+        for t in anba_teams_raw
+        if str(t.get("teamShortName") or "").strip()
+    }
 
-        ts_pct = safe_div(pts, 2.0 * (fga + 0.44 * fta), 100.0)
-        fg3a_rate = safe_div(fg3a, fga, 100.0)
+    nba_teams_by_abbr = fetch_nba_live_teams(nba_season_year)
+
+    default_nba_team = {
+        "g": 0, "w": 0, "l": 0, "wPct": 50.0,
+        "pts": 114.2, "fgm": 41.5, "fga": 88.5, "fgPct": 46.8,
+        "fg3m": 13.5, "fg3a": 37.5, "fg3Pct": 36.0,
+        "ftm": 17.0, "fta": 21.8, "ftPct": 78.0,
+        "orb": 11.0, "drb": 33.0, "trb": 44.0,
+        "ast": 26.5, "stl": 8.2, "blk": 5.0, "tov": 14.2, "pf": 19.5,
+        "plusMinus": 0.0, "ortg": 114.5, "drtg": 114.5, "nrtg": 0.0, "pace": 99.2,
+        "threePar": 0.424, "ftr": 0.246, "tsPct": 58.0, "fg3aRate": 42.4,
+        "offEfgPct": 54.4, "offTovPct": 12.5, "offOrbPct": 24.5, "offFtFga": 0.192,
+        "defEfgPct": 54.4, "defTovPct": 12.5, "defDrbPct": 75.5, "defFtFga": 0.192,
+    }
+
+    teams_list: List[Dict[str, Any]] = []
+    for abbr, meta in TEAM_META.items():
+        t = anba_teams_pg_by_abbr.get(abbr, {})
+        ta = anba_teams_adv_by_abbr.get(abbr, {})
+        st = anba_standings_by_abbr.get(abbr, {})
+        nba_t = nba_teams_by_abbr.get(abbr, default_nba_team)
+
+        gp_raw = int(t.get("gamesPlayed") or st.get("gamesPlayed") or 0)
+        w_raw = int(st.get("wins") if st.get("wins") is not None else round(gp_raw * 0.5))
+        l_raw = int(st.get("losses") if st.get("losses") is not None else max(0, gp_raw - w_raw))
+        w_pct = round((w_raw / gp_raw) * 100.0, 1) if gp_raw > 0 else 0.0
+
+        team_img = t.get("teamImg") or ta.get("teamImg") or st.get("teamImg")
+        logo_url = f"https://anba2k.es/storage/{team_img}" if team_img else ""
+        manager_name = str(st.get("managerName") or "").strip()
 
         roster_players = [p for p in players_list if p["anbaTeam"] == abbr and p["leagueStatus"] == "both"]
         avg_sim = round(float(np.mean([p["similarityScore"] for p in roster_players])), 1) if roster_players else 50.0
         avg_gmsc_delta = round(float(np.mean([p["deltas"]["gameScore"] for p in roster_players])), 2) if roster_players else 0.0
 
-        teams_list.append({
-            "abbr": abbr,
-            "name": meta["name"],
-            "conference": meta["conference"],
-            "division": meta["division"],
-            "color": meta["color"],
-            "rosterSimilarity": avg_sim,
-            "avgGameScoreDelta": avg_gmsc_delta,
-            "anba": {
-                "g": gp,
-                "w": int(t.get("wins") or round(gp * 0.5)),
-                "l": int(t.get("losses") or (gp - round(gp * 0.5))),
-                "wPct": 50.0,
+        if gp_raw > 0 and t:
+            gp = max(1, gp_raw)
+            pts = float(t.get("points") or 0) / gp
+            fgm = float(t.get("fgMade") or 0) / gp
+            fga = float(t.get("fgAttempted") or 0) / gp
+            fg3m = float(t.get("threeMade") or 0) / gp
+            fg3a = float(t.get("threeAttempted") or 0) / gp
+            ftm = float(t.get("ftMade") or 0) / gp
+            fta = float(t.get("ftAttempted") or 0) / gp
+            orb = float(t.get("offRebounds") or 0) / gp
+            drb = float(t.get("defRebounds") or 0) / gp
+            trb = float(t.get("totalRebounds") or 0) / gp
+            ast = float(t.get("assists") or 0) / gp
+            stl = float(t.get("steals") or 0) / gp
+            blk = float(t.get("blocks") or 0) / gp
+            tov = float(t.get("turnovers") or 0) / gp
+            pf = float(t.get("personalFouls") or 0) / gp
+
+            ts_pct = float(ta.get("trueShootingPct") or safe_div(pts, 2.0 * (fga + 0.44 * fta), 100.0))
+            three_par = float(ta.get("threePointAttemptRate") or safe_div(fg3a, fga, 1.0))
+            ftr_val = float(ta.get("freeThrowRate") or safe_div(fta, fga, 1.0))
+            fg3a_rate = three_par * 100.0 if three_par <= 1.5 else safe_div(fg3a, fga, 100.0)
+
+            mov = float(ta.get("marginOfVictory") or 0.0)
+            ortg = float(ta.get("offensiveRating") or 110.0)
+            drtg = float(ta.get("defensiveRating") or 110.0)
+            nrtg = float(ta.get("netRating") if ta.get("netRating") is not None else (ortg - drtg))
+            pace = float(ta.get("pace") or 90.0)
+
+            off_ff = ta.get("offense") if isinstance(ta.get("offense"), dict) else {}
+            def_ff = ta.get("defense") if isinstance(ta.get("defense"), dict) else {}
+
+            off_efg = float(off_ff.get("effectiveFieldGoalPct") or safe_div(fgm + 0.5 * fg3m, fga, 100.0))
+            off_tov = float(off_ff.get("turnoverPct") or 10.0)
+            off_orb = float(off_ff.get("reboundPct") or 22.0)
+            off_ftfga = float(off_ff.get("freeThrowsPerFieldGoalAttempt") or safe_div(ftm, fga, 1.0))
+
+            def_efg = float(def_ff.get("effectiveFieldGoalPct") or 52.0)
+            def_tov = float(def_ff.get("turnoverPct") or 10.0)
+            def_drb = float(def_ff.get("reboundPct") or 78.0)
+            def_ftfga = float(def_ff.get("freeThrowsPerFieldGoalAttempt") or 0.100)
+
+            anba_block = {
+                "g": gp_raw,
+                "w": w_raw,
+                "l": l_raw,
+                "wPct": w_pct,
                 "pts": round(pts, 1),
                 "fgm": round(fgm, 1),
                 "fga": round(fga, 1),
@@ -1071,62 +1340,59 @@ def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, seaso
                 "blk": round(blk, 1),
                 "tov": round(tov, 1),
                 "pf": round(pf, 1),
-                "plusMinus": 0.0,
-                "fastbreakPts": 12.0,
-                "paintPts": 42.0,
-                "secondChancePts": 10.0,
-                "benchPts": 32.0,
+                "plusMinus": round(mov, 1),
+                "ortg": round(ortg, 1),
+                "drtg": round(drtg, 1),
+                "nrtg": round(nrtg, 1),
+                "pace": round(pace, 1),
+                "threePar": round(three_par, 3),
+                "ftr": round(ftr_val, 3),
                 "tsPct": round(ts_pct, 1),
                 "fg3aRate": round(fg3a_rate, 1),
-            },
-            "nba": {
-                "wPct": 50.0,
-                "pts": 114.2,
-                "fga": 88.5,
-                "fgPct": 46.8,
-                "fg3m": 13.5,
-                "fg3a": 37.5,
-                "fg3Pct": 36.0,
-                "ftm": 17.0,
-                "fta": 21.8,
-                "ftPct": 78.0,
-                "orb": 11.0,
-                "drb": 33.0,
-                "trb": 44.0,
-                "ast": 26.5,
-                "stl": 8.2,
-                "blk": 5.0,
-                "tov": 14.2,
-                "tsPct": 58.0,
-                "fg3aRate": 42.4,
-            },
+                "offEfgPct": round(off_efg, 1),
+                "offTovPct": round(off_tov, 1),
+                "offOrbPct": round(off_orb, 1),
+                "offFtFga": round(off_ftfga, 3),
+                "defEfgPct": round(def_efg, 1),
+                "defTovPct": round(def_tov, 1),
+                "defDrbPct": round(def_drb, 1),
+                "defFtFga": round(def_ftfga, 3),
+                "fastbreakPts": round(stl * 1.45, 1),
+                "paintPts": round(max(24.0, (fgm - fg3m) * 1.65), 1),
+                "secondChancePts": round(orb * 1.15, 1),
+                "benchPts": 32.0,
+            }
+        else:
+            anba_block = {
+                "g": 0, "w": 0, "l": 0, "wPct": 0.0,
+                "pts": 0.0, "fgm": 0.0, "fga": 0.0, "fgPct": 0.0,
+                "fg3m": 0.0, "fg3a": 0.0, "fg3Pct": 0.0,
+                "ftm": 0.0, "fta": 0.0, "ftPct": 0.0,
+                "orb": 0.0, "drb": 0.0, "trb": 0.0,
+                "ast": 0.0, "stl": 0.0, "blk": 0.0, "tov": 0.0, "pf": 0.0,
+                "plusMinus": 0.0, "ortg": 0.0, "drtg": 0.0, "nrtg": 0.0, "pace": 0.0,
+                "threePar": 0.0, "ftr": 0.0, "tsPct": 0.0, "fg3aRate": 0.0,
+                "offEfgPct": 0.0, "offTovPct": 0.0, "offOrbPct": 0.0, "offFtFga": 0.0,
+                "defEfgPct": 0.0, "defTovPct": 0.0, "defDrbPct": 0.0, "defFtFga": 0.0,
+                "fastbreakPts": 0.0, "paintPts": 0.0, "secondChancePts": 0.0, "benchPts": 0.0,
+            }
+
+        teams_list.append({
+            "abbr": abbr,
+            "name": meta["name"],
+            "conference": meta["conference"],
+            "division": meta["division"],
+            "color": str(t.get("teamColor") or st.get("teamColor") or meta["color"]),
+            "logoUrl": logo_url,
+            "managerName": manager_name,
+            "rosterSimilarity": avg_sim,
+            "avgGameScoreDelta": avg_gmsc_delta,
+            "anba": anba_block,
+            "nba": nba_t,
         })
 
-    # Ensure all 30 teams are in selector even if some haven't played yet in early season
-    existing_abbrs = {t["abbr"] for t in teams_list}
-    for abbr, meta in TEAM_META.items():
-        if abbr not in existing_abbrs:
-            teams_list.append({
-                "abbr": abbr,
-                "name": meta["name"],
-                "conference": meta["conference"],
-                "division": meta["division"],
-                "color": meta["color"],
-                "rosterSimilarity": 50.0,
-                "avgGameScoreDelta": 0.0,
-                "anba": {
-                    "g": 0, "w": 0, "l": 0, "wPct": 0.0, "pts": 0.0, "fgm": 0.0, "fga": 0.0, "fgPct": 0.0,
-                    "fg3m": 0.0, "fg3a": 0.0, "fg3Pct": 0.0, "ftm": 0.0, "fta": 0.0, "ftPct": 0.0,
-                    "orb": 0.0, "drb": 0.0, "trb": 0.0, "ast": 0.0, "stl": 0.0, "blk": 0.0, "tov": 0.0,
-                    "pf": 0.0, "plusMinus": 0.0, "fastbreakPts": 0.0, "paintPts": 0.0, "secondChancePts": 0.0,
-                    "benchPts": 0.0, "tsPct": 0.0, "fg3aRate": 0.0,
-                },
-                "nba": {
-                    "wPct": 50.0, "pts": 114.2, "fga": 88.5, "fgPct": 46.8, "fg3m": 13.5, "fg3a": 37.5,
-                    "fg3Pct": 36.0, "ftm": 17.0, "fta": 21.8, "ftPct": 78.0, "orb": 11.0, "drb": 33.0,
-                    "trb": 44.0, "ast": 26.5, "stl": 8.2, "blk": 5.0, "tov": 14.2, "tsPct": 58.0, "fg3aRate": 42.4,
-                },
-            })
+    # Ordenar equipos por porcentaje de victorias en ANBA (y PTS como desempate)
+    teams_list.sort(key=lambda x: (x["anba"]["g"] > 0, x["anba"]["wPct"], x["anba"]["pts"]), reverse=True)
 
     rot_players = [p for p in players_list if p["anba"]["mp"] >= 8.0 and p["nba"]["mp"] >= 8.0]
     pos_summary = []
@@ -1147,6 +1413,7 @@ def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, seaso
         })
 
     active_teams = [t for t in teams_list if t["anba"]["g"] > 0] or teams_list
+    active_nba_teams = [t for t in teams_list if t["nba"]["g"] > 0] or teams_list
     league_averages = {
         "anba": {
             "pts": round(float(np.mean([t["anba"]["pts"] for t in active_teams])), 1),
@@ -1164,11 +1431,27 @@ def build_live_season_dataset(anba_season_slug: str, nba_season_year: int, seaso
             "tov": round(float(np.mean([t["anba"]["tov"] for t in active_teams])), 1),
             "tsPct": round(float(np.mean([t["anba"]["tsPct"] for t in active_teams])), 1),
             "fg3aRate": round(float(np.mean([t["anba"]["fg3aRate"] for t in active_teams])), 1),
+            "ortg": round(float(np.mean([t["anba"]["ortg"] for t in active_teams])), 1),
+            "pace": round(float(np.mean([t["anba"]["pace"] for t in active_teams])), 1),
         },
         "nba": {
-            "pts": 114.2, "fgPct": 46.8, "fg3a": 37.5, "fg3Pct": 36.0, "fta": 21.8, "ftPct": 78.0,
-            "trb": 44.0, "orb": 11.0, "drb": 33.0, "ast": 26.5, "stl": 8.2, "blk": 5.0, "tov": 14.2,
-            "tsPct": 58.0, "fg3aRate": 42.4,
+            "pts": round(float(np.mean([t["nba"]["pts"] for t in active_nba_teams])), 1),
+            "fgPct": round(float(np.mean([t["nba"]["fgPct"] for t in active_nba_teams])), 1),
+            "fg3a": round(float(np.mean([t["nba"]["fg3a"] for t in active_nba_teams])), 1),
+            "fg3Pct": round(float(np.mean([t["nba"]["fg3Pct"] for t in active_nba_teams])), 1),
+            "fta": round(float(np.mean([t["nba"]["fta"] for t in active_nba_teams])), 1),
+            "ftPct": round(float(np.mean([t["nba"]["ftPct"] for t in active_nba_teams])), 1),
+            "trb": round(float(np.mean([t["nba"]["trb"] for t in active_nba_teams])), 1),
+            "orb": round(float(np.mean([t["nba"]["orb"] for t in active_nba_teams])), 1),
+            "drb": round(float(np.mean([t["nba"]["drb"] for t in active_nba_teams])), 1),
+            "ast": round(float(np.mean([t["nba"]["ast"] for t in active_nba_teams])), 1),
+            "stl": round(float(np.mean([t["nba"]["stl"] for t in active_nba_teams])), 1),
+            "blk": round(float(np.mean([t["nba"]["blk"] for t in active_nba_teams])), 1),
+            "tov": round(float(np.mean([t["nba"]["tov"] for t in active_nba_teams])), 1),
+            "tsPct": round(float(np.mean([t["nba"]["tsPct"] for t in active_nba_teams])), 1),
+            "fg3aRate": round(float(np.mean([t["nba"]["fg3aRate"] for t in active_nba_teams])), 1),
+            "ortg": round(float(np.mean([t["nba"]["ortg"] for t in active_nba_teams])), 1),
+            "pace": round(float(np.mean([t["nba"]["pace"] for t in active_nba_teams])), 1),
         },
     }
 

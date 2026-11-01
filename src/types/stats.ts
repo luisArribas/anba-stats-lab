@@ -149,6 +149,8 @@ export interface TeamComparison {
   conference: string;
   division: string;
   color: string;
+  logoUrl?: string;
+  managerName?: string;
   rosterSimilarity: number;
   avgGameScoreDelta: number;
   anba: {
@@ -175,16 +177,34 @@ export interface TeamComparison {
     tov: number;
     pf: number;
     plusMinus: number;
+    ortg: number;
+    drtg: number;
+    nrtg: number;
+    pace: number;
+    threePar: number;
+    ftr: number;
+    tsPct: number;
+    fg3aRate: number;
+    offEfgPct: number;
+    offTovPct: number;
+    offOrbPct: number;
+    offFtFga: number;
+    defEfgPct: number;
+    defTovPct: number;
+    defDrbPct: number;
+    defFtFga: number;
     fastbreakPts: number;
     paintPts: number;
     secondChancePts: number;
     benchPts: number;
-    tsPct: number;
-    fg3aRate: number;
   };
   nba: {
+    g: number;
+    w: number;
+    l: number;
     wPct: number;
     pts: number;
+    fgm: number;
     fga: number;
     fgPct: number;
     fg3m: number;
@@ -200,8 +220,24 @@ export interface TeamComparison {
     stl: number;
     blk: number;
     tov: number;
+    pf: number;
+    plusMinus: number;
+    ortg: number;
+    drtg: number;
+    nrtg: number;
+    pace: number;
+    threePar: number;
+    ftr: number;
     tsPct: number;
     fg3aRate: number;
+    offEfgPct: number;
+    offTovPct: number;
+    offOrbPct: number;
+    offFtFga: number;
+    defEfgPct: number;
+    defTovPct: number;
+    defDrbPct: number;
+    defFtFga: number;
   };
 }
 
@@ -233,6 +269,8 @@ export interface LeagueAverageBlock {
   tov: number;
   tsPct: number;
   fg3aRate: number;
+  ortg?: number;
+  pace?: number;
 }
 
 export interface SeasonDataset {

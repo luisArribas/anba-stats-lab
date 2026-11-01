@@ -2,37 +2,33 @@
 
 import React, { useMemo, useState } from "react";
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
   ScatterChart,
   Scatter,
+  XAxis,
+  YAxis,
   ZAxis,
+  Tooltip,
+  ResponsiveContainer,
   Cell,
-  Legend,
+  ReferenceLine,
 } from "recharts";
 import {
   Building2,
-  Trophy,
   Gauge,
   Compass,
   Users,
-  ArrowUpDown,
   ExternalLink,
+  Trophy,
+  UserCheck,
+  SlidersHorizontal,
+  Activity,
 } from "lucide-react";
 import {
   LeagueAverageBlock,
   PlayerComparison,
   TeamComparison,
 } from "@/types/stats";
-import {
-  formatDelta,
-  getDeltaColorClass,
-  getSimilarityBadgeColor,
-} from "@/lib/formatters";
+import { formatDelta } from "@/lib/formatters";
 
 interface FranchiseRealismProps {
   teams: TeamComparison[];
@@ -44,6 +40,21 @@ interface FranchiseRealismProps {
   onInspectPlayer: (id: string) => void;
 }
 
+type TeamStatMode = "per_game" | "advanced";
+type ScatterMode = "efficiency" | "pacespace";
+
+interface TeamMetricRow {
+  key: string;
+  label: string;
+  shortLabel: string;
+  anbaVal: number;
+  nbaVal: number;
+  decimals?: number;
+  suffix?: string;
+  invertGood?: boolean;
+  group?: string;
+}
+
 export default function FranchiseRealism({
   teams,
   players,
@@ -51,8 +62,11 @@ export default function FranchiseRealism({
   onInspectPlayer,
 }: FranchiseRealismProps) {
   const [selectedTeamAbbr, setSelectedTeamAbbr] = useState<string>(
-    teams[0]?.abbr || "MIL"
+    teams[0]?.abbr || "OKC"
   );
+  const [statMode, setStatMode] = useState<TeamStatMode>("per_game");
+  const [tableMode, setTableMode] = useState<TeamStatMode>("per_game");
+  const [scatterMode, setScatterMode] = useState<ScatterMode>("efficiency");
   const [confFilter, setConfFilter] = useState<"ALL" | "East" | "West">("ALL");
 
   const selectedTeam = useMemo(() => {
@@ -62,162 +76,443 @@ export default function FranchiseRealism({
   const teamRoster = useMemo(() => {
     if (!selectedTeam) return [];
     return players
-      .filter((p) => p.anbaTeam === selectedTeam.abbr)
+      .filter((p) => p.anbaTeam === selectedTeam.abbr && p.leagueStatus !== "nba_only")
       .sort((a, b) => b.anba.mp - a.anba.mp);
   }, [players, selectedTeam]);
 
   const filteredTeams = useMemo(() => {
-    if (confFilter === "ALL") return teams;
-    return teams.filter((t) => t.conference === confFilter);
+    const base =
+      confFilter === "ALL"
+        ? [...teams]
+        : teams.filter((t) => t.conference === confFilter);
+    return base.sort((a, b) => b.anba.wPct - a.anba.wPct || b.anba.nrtg - a.anba.nrtg);
   }, [teams, confFilter]);
 
   if (!selectedTeam) return null;
 
   const macroCards = [
     {
-      label: "Anotación Media (PTS)",
+      label: "Puntos / Partido",
       anba: leagueAverages.anba.pts,
       nba: leagueAverages.nba.pts,
-      unit: " pts",
-      note: "Ritmo ofensivo por partido",
+      decimals: 1,
+      suffix: "",
+      note: "Anotación media por franquicia",
     },
     {
-      label: "Volumen Triple (3PA)",
-      anba: leagueAverages.anba.fg3a,
-      nba: leagueAverages.nba.fg3a,
-      unit: " 3PA",
-      note: `Tasa 3PAr: ${leagueAverages.anba.fg3aRate}% vs ${leagueAverages.nba.fg3aRate}%`,
+      label: "Rating Ofensivo (ORtg)",
+      anba: leagueAverages.anba.ortg ?? 114.0,
+      nba: leagueAverages.nba.ortg ?? 115.0,
+      decimals: 1,
+      suffix: "",
+      note: "Puntos por cada 100 posesiones",
     },
     {
-      label: "Tiros Libres (FTA)",
-      anba: leagueAverages.anba.fta,
-      nba: leagueAverages.nba.fta,
-      unit: " FTA",
-      note: "Faltas de tiro concedidas en motor",
+      label: "Ritmo (Pace)",
+      anba: leagueAverages.anba.pace ?? 98.5,
+      nba: leagueAverages.nba.pace ?? 99.0,
+      decimals: 1,
+      suffix: "",
+      note: "Posesiones por 48 minutos",
     },
     {
-      label: "Rebotes Totales (REB)",
-      anba: leagueAverages.anba.trb,
-      nba: leagueAverages.nba.trb,
-      unit: " reb",
-      note: `DRB: ${leagueAverages.anba.drb} (ANBA) vs ${leagueAverages.nba.drb} (NBA)`,
+      label: "Tasa de Triple (3PAr)",
+      anba: leagueAverages.anba.fg3aRate,
+      nba: leagueAverages.nba.fg3aRate,
+      decimals: 1,
+      suffix: "%",
+      note: `3PA/p: ${leagueAverages.anba.fg3a.toFixed(1)} vs ${leagueAverages.nba.fg3a.toFixed(1)}`,
     },
     {
-      label: "Asistencias (AST)",
+      label: "True Shooting (TS%)",
+      anba: leagueAverages.anba.tsPct,
+      nba: leagueAverages.nba.tsPct,
+      decimals: 1,
+      suffix: "%",
+      note: "Eficiencia real de tiro",
+    },
+    {
+      label: "Asistencias / Partido",
       anba: leagueAverages.anba.ast,
       nba: leagueAverages.nba.ast,
-      unit: " ast",
-      note: "Circulación de balón por partido",
-    },
-    {
-      label: "Pérdidas (TOV)",
-      anba: leagueAverages.anba.tov,
-      nba: leagueAverages.nba.tov,
-      unit: " per",
-      note: "Cuidado de balón en simulador",
+      decimals: 1,
+      suffix: "",
+      note: `Pérdidas: ${leagueAverages.anba.tov.toFixed(1)} vs ${leagueAverages.nba.tov.toFixed(1)}`,
     },
   ];
 
-  const teamComparisonChartData = [
+  const perGameMetrics: TeamMetricRow[] = [
     {
-      metric: "PTS",
-      ANBA: selectedTeam.anba.pts,
-      NBA: selectedTeam.nba.pts,
-      MediaANBA: leagueAverages.anba.pts,
+      key: "pts",
+      label: "Puntos por Partido",
+      shortLabel: "PTS",
+      anbaVal: selectedTeam.anba.pts,
+      nbaVal: selectedTeam.nba.pts,
+      decimals: 1,
     },
     {
-      metric: "REB",
-      ANBA: selectedTeam.anba.trb,
-      NBA: selectedTeam.nba.trb,
-      MediaANBA: leagueAverages.anba.trb,
+      key: "fgPct",
+      label: "% Tiros de Campo",
+      shortLabel: "FG%",
+      anbaVal: selectedTeam.anba.fgPct,
+      nbaVal: selectedTeam.nba.fgPct,
+      decimals: 1,
+      suffix: "%",
     },
     {
-      metric: "AST",
-      ANBA: selectedTeam.anba.ast,
-      NBA: selectedTeam.nba.ast,
-      MediaANBA: leagueAverages.anba.ast,
+      key: "fg3m",
+      label: "Triples Anotados / P",
+      shortLabel: "3PM",
+      anbaVal: selectedTeam.anba.fg3m,
+      nbaVal: selectedTeam.nba.fg3m,
+      decimals: 1,
     },
     {
-      metric: "3PA",
-      ANBA: selectedTeam.anba.fg3a,
-      NBA: selectedTeam.nba.fg3a,
-      MediaANBA: leagueAverages.anba.fg3a,
+      key: "fg3a",
+      label: "Triples Intentados / P",
+      shortLabel: "3PA",
+      anbaVal: selectedTeam.anba.fg3a,
+      nbaVal: selectedTeam.nba.fg3a,
+      decimals: 1,
     },
     {
-      metric: "FTA",
-      ANBA: selectedTeam.anba.fta,
-      NBA: selectedTeam.nba.fta,
-      MediaANBA: leagueAverages.anba.fta,
+      key: "fg3Pct",
+      label: "% Acierto en Triple",
+      shortLabel: "3P%",
+      anbaVal: selectedTeam.anba.fg3Pct,
+      nbaVal: selectedTeam.nba.fg3Pct,
+      decimals: 1,
+      suffix: "%",
     },
     {
-      metric: "TS%",
-      ANBA: selectedTeam.anba.tsPct,
-      NBA: selectedTeam.nba.tsPct,
-      MediaANBA: leagueAverages.anba.tsPct,
+      key: "ftm",
+      label: "Tiros Libres Anotados",
+      shortLabel: "FTM",
+      anbaVal: selectedTeam.anba.ftm,
+      nbaVal: selectedTeam.nba.ftm,
+      decimals: 1,
+    },
+    {
+      key: "fta",
+      label: "Tiros Libres Intentados",
+      shortLabel: "FTA",
+      anbaVal: selectedTeam.anba.fta,
+      nbaVal: selectedTeam.nba.fta,
+      decimals: 1,
+    },
+    {
+      key: "ftPct",
+      label: "% Tiros Libres",
+      shortLabel: "FT%",
+      anbaVal: selectedTeam.anba.ftPct,
+      nbaVal: selectedTeam.nba.ftPct,
+      decimals: 1,
+      suffix: "%",
+    },
+    {
+      key: "orb",
+      label: "Rebotes Ofensivos",
+      shortLabel: "OREB",
+      anbaVal: selectedTeam.anba.orb,
+      nbaVal: selectedTeam.nba.orb,
+      decimals: 1,
+    },
+    {
+      key: "drb",
+      label: "Rebotes Defensivos",
+      shortLabel: "DREB",
+      anbaVal: selectedTeam.anba.drb,
+      nbaVal: selectedTeam.nba.drb,
+      decimals: 1,
+    },
+    {
+      key: "trb",
+      label: "Rebotes Totales",
+      shortLabel: "REB",
+      anbaVal: selectedTeam.anba.trb,
+      nbaVal: selectedTeam.nba.trb,
+      decimals: 1,
+    },
+    {
+      key: "ast",
+      label: "Asistencias",
+      shortLabel: "AST",
+      anbaVal: selectedTeam.anba.ast,
+      nbaVal: selectedTeam.nba.ast,
+      decimals: 1,
+    },
+    {
+      key: "stl",
+      label: "Robos de Balón",
+      shortLabel: "STL",
+      anbaVal: selectedTeam.anba.stl,
+      nbaVal: selectedTeam.nba.stl,
+      decimals: 1,
+    },
+    {
+      key: "blk",
+      label: "Tapones",
+      shortLabel: "BLK",
+      anbaVal: selectedTeam.anba.blk,
+      nbaVal: selectedTeam.nba.blk,
+      decimals: 1,
+    },
+    {
+      key: "tov",
+      label: "Pérdidas de Balón",
+      shortLabel: "TOV",
+      anbaVal: selectedTeam.anba.tov,
+      nbaVal: selectedTeam.nba.tov,
+      decimals: 1,
+      invertGood: true,
+    },
+    {
+      key: "pf",
+      label: "Faltas Personales",
+      shortLabel: "PF",
+      anbaVal: selectedTeam.anba.pf,
+      nbaVal: selectedTeam.nba.pf,
+      decimals: 1,
+      invertGood: true,
     },
   ];
 
-  const paceSpaceData = useMemo(() => {
+  const advancedMetrics: TeamMetricRow[] = [
+    {
+      key: "ortg",
+      label: "Rating Ofensivo (ORtg)",
+      shortLabel: "ORtg",
+      anbaVal: selectedTeam.anba.ortg,
+      nbaVal: selectedTeam.nba.ortg,
+      decimals: 1,
+      group: "Ratings & Ritmo",
+    },
+    {
+      key: "drtg",
+      label: "Rating Defensivo (DRtg · menos es mejor)",
+      shortLabel: "DRtg",
+      anbaVal: selectedTeam.anba.drtg,
+      nbaVal: selectedTeam.nba.drtg,
+      decimals: 1,
+      invertGood: true,
+      group: "Ratings & Ritmo",
+    },
+    {
+      key: "nrtg",
+      label: "Net Rating (Diferencial / 100 pos)",
+      shortLabel: "NetRtg",
+      anbaVal: selectedTeam.anba.nrtg,
+      nbaVal: selectedTeam.nba.nrtg,
+      decimals: 1,
+      group: "Ratings & Ritmo",
+    },
+    {
+      key: "pace",
+      label: "Ritmo (Pace · Posesiones/48m)",
+      shortLabel: "PACE",
+      anbaVal: selectedTeam.anba.pace,
+      nbaVal: selectedTeam.nba.pace,
+      decimals: 1,
+      group: "Ratings & Ritmo",
+    },
+    {
+      key: "tsPct",
+      label: "True Shooting % (TS%)",
+      shortLabel: "TS%",
+      anbaVal: selectedTeam.anba.tsPct,
+      nbaVal: selectedTeam.nba.tsPct,
+      decimals: 1,
+      suffix: "%",
+      group: "Ratings & Ritmo",
+    },
+    {
+      key: "threePar",
+      label: "Tasa de Triples (3PAr)",
+      shortLabel: "3PAr",
+      anbaVal: selectedTeam.anba.threePar,
+      nbaVal: selectedTeam.nba.threePar,
+      decimals: 1,
+      suffix: "%",
+      group: "Ratings & Ritmo",
+    },
+    {
+      key: "ftr",
+      label: "Tasa de Tiros Libres (FTr)",
+      shortLabel: "FTr",
+      anbaVal: selectedTeam.anba.ftr,
+      nbaVal: selectedTeam.nba.ftr,
+      decimals: 1,
+      suffix: "%",
+      group: "Ratings & Ritmo",
+    },
+    {
+      key: "offEfgPct",
+      label: "Four Factors Ataque · eFG% Efectivo",
+      shortLabel: "Off eFG%",
+      anbaVal: selectedTeam.anba.offEfgPct,
+      nbaVal: selectedTeam.nba.offEfgPct,
+      decimals: 1,
+      suffix: "%",
+      group: "Four Factors",
+    },
+    {
+      key: "offTovPct",
+      label: "Four Factors Ataque · % Pérdidas (TOV%)",
+      shortLabel: "Off TOV%",
+      anbaVal: selectedTeam.anba.offTovPct,
+      nbaVal: selectedTeam.nba.offTovPct,
+      decimals: 1,
+      suffix: "%",
+      invertGood: true,
+      group: "Four Factors",
+    },
+    {
+      key: "offOrbPct",
+      label: "Four Factors Ataque · % Rebote Ofensivo",
+      shortLabel: "ORB%",
+      anbaVal: selectedTeam.anba.offOrbPct,
+      nbaVal: selectedTeam.nba.offOrbPct,
+      decimals: 1,
+      suffix: "%",
+      group: "Four Factors",
+    },
+    {
+      key: "offFtFga",
+      label: "Four Factors Ataque · Ratio FT/FGA",
+      shortLabel: "Off FT/FGA",
+      anbaVal: selectedTeam.anba.offFtFga,
+      nbaVal: selectedTeam.nba.offFtFga,
+      decimals: 1,
+      suffix: "%",
+      group: "Four Factors",
+    },
+    {
+      key: "defEfgPct",
+      label: "Four Factors Defensa · eFG% Permitido",
+      shortLabel: "Def eFG%",
+      anbaVal: selectedTeam.anba.defEfgPct,
+      nbaVal: selectedTeam.nba.defEfgPct,
+      decimals: 1,
+      suffix: "%",
+      invertGood: true,
+      group: "Four Factors",
+    },
+    {
+      key: "defTovPct",
+      label: "Four Factors Defensa · % Pérdidas Forzadas",
+      shortLabel: "Def TOV%",
+      anbaVal: selectedTeam.anba.defTovPct,
+      nbaVal: selectedTeam.nba.defTovPct,
+      decimals: 1,
+      suffix: "%",
+      group: "Four Factors",
+    },
+    {
+      key: "defDrbPct",
+      label: "Four Factors Defensa · % Rebote Defensivo",
+      shortLabel: "DRB%",
+      anbaVal: selectedTeam.anba.defDrbPct,
+      nbaVal: selectedTeam.nba.defDrbPct,
+      decimals: 1,
+      suffix: "%",
+      group: "Four Factors",
+    },
+    {
+      key: "defFtFga",
+      label: "Four Factors Defensa · FT/FGA Permitido",
+      shortLabel: "Def FT/FGA",
+      anbaVal: selectedTeam.anba.defFtFga,
+      nbaVal: selectedTeam.nba.defFtFga,
+      decimals: 1,
+      suffix: "%",
+      invertGood: true,
+      group: "Four Factors",
+    },
+  ];
+
+  const activeMetrics = statMode === "per_game" ? perGameMetrics : advancedMetrics;
+
+  const scatterData = useMemo(() => {
     return teams.map((t) => ({
       abbr: t.abbr,
       name: t.name,
-      fg3aRate: t.anba.fg3aRate,
-      tsPct: t.anba.tsPct,
-      pts: t.anba.pts,
+      managerName: t.managerName || "Mánager ANBA",
+      x: scatterMode === "efficiency" ? t.anba.ortg : t.anba.threePar,
+      y: scatterMode === "efficiency" ? t.anba.drtg : t.anba.tsPct,
+      nrtg: t.anba.nrtg,
       wPct: t.anba.wPct,
+      record: `${t.anba.w}-${t.anba.l}`,
+      nbaRecord: `${t.nba.w}-${t.nba.l}`,
+      pts: t.anba.pts,
       color: t.color,
     }));
-  }, [teams]);
+  }, [teams, scatterMode]);
 
   return (
     <div className="space-y-6">
-      {/* League-Wide Simulator vs Reality Macro Benchmark */}
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/60 p-5 shadow-sm">
+      {/* 1. Macro Radiografía de la Liga: Media de las 30 Franquicias */}
+      <div className="rounded-xl border border-[#262c3b] bg-[#161a23] p-5 shadow-lg">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
           <div>
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Gauge className="w-4 h-4 text-emerald-500" />
-              Radiografía Macro: Media de Equipos ANBA vs. Media NBA Real
-            </h3>
-            <p className="text-xs text-zinc-500">
-              Diferencias estructurales del entorno competitivo de ANBA frente a los promedios oficiales de la NBA.
+            <h2 className="text-sm sm:text-base font-bold text-[#eceef2] flex items-center gap-2">
+              <Gauge className="w-4 h-4 text-[#4d84e2]" />
+              Radiografía Macro: Promedio de las 30 Franquicias (ANBA 2K vs NBA Real)
+            </h2>
+            <p className="text-xs text-[#8b9099] mt-0.5">
+              Compara el ritmo, eficiencia y estilo colectivo del ecosistema ANBA frente a los promedios oficiales de la NBA.
             </p>
           </div>
-          <span className="text-xs font-mono text-zinc-400">
-            Promedio de las 30 Franquicias
-          </span>
+          <div className="flex items-center gap-3 text-[11px] font-mono">
+            <span className="inline-flex items-center gap-1.5 text-[#4d84e2] font-semibold">
+              <span className="w-2.5 h-2.5 rounded-sm bg-[#4d84e2]" />
+              ANBA 2K
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-[#c9a84c] font-semibold">
+              <span className="w-2.5 h-2.5 rounded-sm bg-[#c9a84c]" />
+              NBA Real
+            </span>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {macroCards.map((c) => {
             const diff = c.anba - c.nba;
+            const isPos = diff > 0.05;
+            const isNeg = diff < -0.05;
             return (
               <div
                 key={c.label}
-                className="rounded-lg border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/60 p-3"
+                className="rounded-lg border border-[#262c3b] bg-[#0f1219]/90 p-3.5 flex flex-col justify-between"
               >
-                <div className="text-[11px] font-medium text-zinc-500">
+                <div className="text-[11px] font-semibold text-[#8b9099] uppercase tracking-wider">
                   {c.label}
                 </div>
-                <div className="mt-1.5 flex items-baseline justify-between font-mono">
-                  <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
-                    {c.anba.toFixed(1)}
+                <div className="mt-2 flex items-baseline justify-between font-mono">
+                  <span className="text-lg font-extrabold text-[#4d84e2]">
+                    {c.anba.toFixed(c.decimals)}
+                    {c.suffix}
                   </span>
-                  <span className="text-xs text-orange-500 font-semibold">
-                    NBA: {c.nba.toFixed(1)}
+                  <span className="text-xs font-bold text-[#c9a84c]">
+                    NBA: {c.nba.toFixed(c.decimals)}
+                    {c.suffix}
                   </span>
                 </div>
-                <div className="mt-1.5 flex items-center justify-between">
+                <div className="mt-2 flex items-center justify-between gap-2">
                   <span
-                    className={`font-mono text-[10px] px-1.5 py-0.5 rounded border ${getDeltaColorClass(
-                      diff
-                    )}`}
+                    className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                      isPos
+                        ? "bg-[#5ee89a]/10 text-[#5ee89a] border-[#5ee89a]/30"
+                        : isNeg
+                        ? "bg-[#f26464]/10 text-[#f26464] border-[#f26464]/30"
+                        : "bg-[#262c3b]/50 text-[#8b9099] border-[#262c3b]"
+                    }`}
                   >
-                    {formatDelta(diff, 1)}
+                    {formatDelta(diff, c.decimals)}
+                    {c.suffix}
                   </span>
-                </div>
-                <div className="mt-1 text-[10px] text-zinc-400 truncate">
-                  {c.note}
+                  <span className="text-[10px] text-[#8b9099] truncate">
+                    {c.note}
+                  </span>
                 </div>
               </div>
             );
@@ -225,437 +520,908 @@ export default function FranchiseRealism({
         </div>
       </div>
 
-      {/* Franchise Selector & Team Spotlight */}
+      {/* 2. Selector Rápido de las 30 Franquicias */}
+      <div className="rounded-xl border border-[#262c3b] bg-[#161a23] p-4 shadow-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-[#4d84e2]" />
+            <span className="text-xs font-bold uppercase tracking-wider text-[#eceef2]">
+              Selecciona una Franquicia para auditar su Fidelidad Táctica
+            </span>
+          </div>
+          <select
+            value={selectedTeam.abbr}
+            onChange={(e) => setSelectedTeamAbbr(e.target.value)}
+            aria-label="Seleccionar franquicia ANBA"
+            className="text-xs font-semibold rounded-lg border border-[#262c3b] bg-[#0f1219] px-3 py-2 text-[#eceef2] focus:outline-none focus:border-[#4d84e2]"
+          >
+            {teams.map((t) => (
+              <option key={t.abbr} value={t.abbr}>
+                {t.abbr} — {t.name} | ANBA: {t.anba.w}-{t.anba.l} vs NBA: {t.nba.w}-{t.nba.l}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 no-scrollbar">
+          {teams.map((t) => {
+            const active = t.abbr === selectedTeam.abbr;
+            return (
+              <button
+                key={t.abbr}
+                onClick={() => setSelectedTeamAbbr(t.abbr)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold shrink-0 border transition-all ${
+                  active
+                    ? "bg-[#16233a] border-[#4d84e2] text-white shadow-sm"
+                    : "bg-[#0f1219]/80 border-[#262c3b] text-[#8b9099] hover:text-[#eceef2] hover:border-[#4d84e2]/40"
+                }`}
+              >
+                {t.logoUrl ? (
+                  <img
+                    src={t.logoUrl}
+                    alt={t.abbr}
+                    className="w-4 h-4 object-contain"
+                  />
+                ) : (
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: t.color }}
+                  />
+                )}
+                <span>{t.abbr}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 3. Cara a Cara de la Franquicia Seleccionada + Mapa Táctico */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left: Team Spotlight & Bar Comparison */}
-        <div className="lg:col-span-7 rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/60 p-5 shadow-sm flex flex-col justify-between">
+        {/* Left 7 cols: Radiografía 1v1 de la Franquicia (ANBA vs NBA Real) */}
+        <div className="lg:col-span-7 rounded-xl border border-[#262c3b] bg-[#161a23] p-5 shadow-lg flex flex-col justify-between">
           <div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-zinc-100 dark:border-zinc-800">
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center font-mono font-bold text-white text-sm shadow-sm"
-                  style={{ backgroundColor: selectedTeam.color }}
-                >
-                  {selectedTeam.abbr}
+            {/* Team Header Card */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#262c3b]">
+              <div className="flex items-center gap-3.5">
+                <div className="w-14 h-14 rounded-xl bg-[#0f1219] border border-[#262c3b] flex items-center justify-center p-2 shrink-0">
+                  {selectedTeam.logoUrl ? (
+                    <img
+                      src={selectedTeam.logoUrl}
+                      alt={selectedTeam.name}
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <span
+                      className="font-mono font-bold text-sm text-white px-2 py-1 rounded"
+                      style={{ backgroundColor: selectedTeam.color }}
+                    >
+                      {selectedTeam.abbr}
+                    </span>
+                  )}
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-                    {selectedTeam.name}
-                  </h3>
-                  <p className="text-xs text-zinc-500 font-mono">
-                    Récord ANBA: {selectedTeam.anba.w}-{selectedTeam.anba.l} (
-                    {selectedTeam.anba.wPct}%) · Dif:{" "}
-                    {selectedTeam.anba.plusMinus > 0
-                      ? `+${selectedTeam.anba.plusMinus}`
-                      : selectedTeam.anba.plusMinus}{" "}
-                    · NBA Win%: {selectedTeam.nba.wPct}%
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-lg sm:text-xl font-black text-[#eceef2] tracking-tight">
+                      {selectedTeam.name}
+                    </h3>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-[#0f1219] text-[#8b9099] border border-[#262c3b]">
+                      Conf. {selectedTeam.conference === "East" ? "Este" : "Oeste"}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-[#8b9099]">
+                    {selectedTeam.managerName && (
+                      <span className="inline-flex items-center gap-1 text-[#eceef2] font-medium">
+                        <UserCheck className="w-3.5 h-3.5 text-[#4d84e2]" />
+                        Mánager ANBA:{" "}
+                        <strong className="text-[#4d84e2]">
+                          {selectedTeam.managerName}
+                        </strong>
+                      </span>
+                    )}
+                    <span>·</span>
+                    <span>
+                      Similitud Táctica:{" "}
+                      <strong className="text-[#5ee89a] font-mono">
+                        {selectedTeam.rosterSimilarity.toFixed(1)}%
+                      </strong>
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <select
-                value={selectedTeam.abbr}
-                onChange={(e) => setSelectedTeamAbbr(e.target.value)}
-                aria-label="Seleccionar franquicia ANBA"
-                className="text-xs font-medium rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-zinc-800 dark:text-zinc-200"
-              >
-                {teams.map((t) => (
-                  <option key={t.abbr} value={t.abbr}>
-                    {t.abbr} — {t.name} ({t.anba.w}-{t.anba.l})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Exclusive ANBA Team Style Metrics */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4">
-              <div className="p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-950/70 border border-zinc-200/60 dark:border-zinc-800/80">
-                <div className="text-[10px] uppercase tracking-wider text-zinc-400">
-                  Puntos en la Zona
-                </div>
-                <div className="font-mono text-base font-bold text-zinc-900 dark:text-zinc-100 mt-0.5">
-                  {selectedTeam.anba.paintPts} pts/p
-                </div>
-              </div>
-              <div className="p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-950/70 border border-zinc-200/60 dark:border-zinc-800/80">
-                <div className="text-[10px] uppercase tracking-wider text-zinc-400">
-                  Contraataque
-                </div>
-                <div className="font-mono text-base font-bold text-zinc-900 dark:text-zinc-100 mt-0.5">
-                  {selectedTeam.anba.fastbreakPts} pts/p
-                </div>
-              </div>
-              <div className="p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-950/70 border border-zinc-200/60 dark:border-zinc-800/80">
-                <div className="text-[10px] uppercase tracking-wider text-zinc-400">
-                  Puntos Banquillo
-                </div>
-                <div className="font-mono text-base font-bold text-zinc-900 dark:text-zinc-100 mt-0.5">
-                  {selectedTeam.anba.benchPts} pts/p
-                </div>
-              </div>
-              <div className="p-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-950/70 border border-zinc-200/60 dark:border-zinc-800/80">
-                <div className="text-[10px] uppercase tracking-wider text-zinc-400">
-                  Fidelidad Plantilla
-                </div>
-                <div className="font-mono text-base font-bold text-cyan-500 mt-0.5">
-                  {selectedTeam.rosterSimilarity}%
-                </div>
-              </div>
-            </div>
-
-            {/* Grouped Bar Chart: Team ANBA vs Team NBA vs League Average */}
-            <div className="h-60 w-full mt-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={teamComparisonChartData}
-                  margin={{ top: 10, right: 10, left: -15, bottom: 0 }}
+              {/* Mode Selector: Por Partido | Avanzadas & Four Factors */}
+              <div className="inline-flex rounded-lg border border-[#262c3b] bg-[#0f1219] p-1 self-start sm:self-center shrink-0">
+                <button
+                  onClick={() => setStatMode("per_game")}
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
+                    statMode === "per_game"
+                      ? "bg-[#4d84e2] text-white shadow-sm"
+                      : "text-[#8b9099] hover:text-[#eceef2]"
+                  }`}
                 >
-                  <XAxis
-                    dataKey="metric"
-                    tick={{ fill: "#a1a1aa", fontSize: 11, fontFamily: "monospace" }}
-                    axisLine={{ stroke: "#3f3f46" }}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fill: "#71717a", fontSize: 11, fontFamily: "monospace" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#09090b",
-                      borderColor: "#27272a",
-                      borderRadius: "8px",
-                      fontSize: "12px",
-                      color: "#f4f4f5",
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: "11px" }} />
-                  <Bar
-                    name={`${selectedTeam.abbr} (ANBA)`}
-                    dataKey="ANBA"
-                    fill="#10b981"
-                    radius={[4, 4, 0, 0]}
-                  />
-                  <Bar
-                    name={`${selectedTeam.abbr} (NBA Real)`}
-                    dataKey="NBA"
-                    fill="#f97316"
-                    radius={[4, 4, 0, 0]}
-                  />
-                  <Bar
-                    name="Media ANBA"
-                    dataKey="MediaANBA"
-                    fill="#6366f1"
-                    radius={[4, 4, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+                  Por Partido
+                </button>
+                <button
+                  onClick={() => setStatMode("advanced")}
+                  className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${
+                    statMode === "advanced"
+                      ? "bg-[#4d84e2] text-white shadow-sm"
+                      : "text-[#8b9099] hover:text-[#eceef2]"
+                  }`}
+                >
+                  Avanzadas & 4 Factors
+                </button>
+              </div>
+            </div>
+
+            {/* Record & Headline Summary Cards (ANBA vs NBA) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4">
+              <div className="rounded-lg bg-[#0f1219] border border-[#4d84e2]/30 p-3">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-[#4d84e2]">
+                  Récord ANBA 2K
+                </div>
+                <div className="font-mono text-base sm:text-lg font-black text-[#eceef2] mt-0.5">
+                  {selectedTeam.anba.w}-{selectedTeam.anba.l}{" "}
+                  <span className="text-xs font-normal text-[#8b9099]">
+                    ({selectedTeam.anba.wPct.toFixed(1)}%)
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-[#0f1219] border border-[#c9a84c]/30 p-3">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-[#c9a84c]">
+                  Récord NBA Real
+                </div>
+                <div className="font-mono text-base sm:text-lg font-black text-[#eceef2] mt-0.5">
+                  {selectedTeam.nba.w}-{selectedTeam.nba.l}{" "}
+                  <span className="text-xs font-normal text-[#8b9099]">
+                    ({selectedTeam.nba.wPct.toFixed(1)}%)
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-[#0f1219] border border-[#262c3b] p-3">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-[#8b9099]">
+                  Net Rating (A / N)
+                </div>
+                <div className="font-mono text-base sm:text-lg font-black mt-0.5 flex items-baseline gap-1.5">
+                  <span className="text-[#4d84e2]">
+                    {selectedTeam.anba.nrtg > 0
+                      ? `+${selectedTeam.anba.nrtg.toFixed(1)}`
+                      : selectedTeam.anba.nrtg.toFixed(1)}
+                  </span>
+                  <span className="text-xs text-[#8b9099]">/</span>
+                  <span className="text-[#c9a84c] text-sm">
+                    {selectedTeam.nba.nrtg > 0
+                      ? `+${selectedTeam.nba.nrtg.toFixed(1)}`
+                      : selectedTeam.nba.nrtg.toFixed(1)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-[#0f1219] border border-[#262c3b] p-3">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-[#8b9099]">
+                  Ritmo Pace (A / N)
+                </div>
+                <div className="font-mono text-base sm:text-lg font-black mt-0.5 flex items-baseline gap-1.5">
+                  <span className="text-[#4d84e2]">
+                    {selectedTeam.anba.pace.toFixed(1)}
+                  </span>
+                  <span className="text-xs text-[#8b9099]">/</span>
+                  <span className="text-[#c9a84c] text-sm">
+                    {selectedTeam.nba.pace.toFixed(1)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Diverging Bar Comparison List */}
+            <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
+              {activeMetrics.map((m) => {
+                const diff = m.anbaVal - m.nbaVal;
+                const maxVal = Math.max(
+                  Math.abs(m.anbaVal),
+                  Math.abs(m.nbaVal),
+                  1
+                );
+                const anbaPct = Math.min(
+                  100,
+                  Math.max(6, (Math.abs(m.anbaVal) / maxVal) * 100)
+                );
+                const nbaPct = Math.min(
+                  100,
+                  Math.max(6, (Math.abs(m.nbaVal) / maxVal) * 100)
+                );
+
+                const isPositiveGood = m.invertGood ? diff < -0.05 : diff > 0.05;
+                const isNegativeBad = m.invertGood ? diff > 0.05 : diff < -0.05;
+
+                return (
+                  <div
+                    key={m.key}
+                    className="rounded-lg bg-[#0f1219]/90 border border-[#262c3b]/80 px-3.5 py-2.5 hover:border-[#4d84e2]/40 transition"
+                  >
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-[#eceef2] w-16">
+                          {m.shortLabel}
+                        </span>
+                        <span className="text-[#8b9099] text-[11px] hidden sm:inline">
+                          {m.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 font-mono text-xs">
+                        <span className="text-[#4d84e2] font-bold">
+                          {m.anbaVal.toFixed(m.decimals ?? 1)}
+                          {m.suffix || ""}
+                        </span>
+                        <span className="text-[#8b9099]">vs</span>
+                        <span className="text-[#c9a84c] font-bold">
+                          {m.nbaVal.toFixed(m.decimals ?? 1)}
+                          {m.suffix || ""}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded border min-w-[54px] text-right ${
+                            isPositiveGood
+                              ? "bg-[#5ee89a]/10 text-[#5ee89a] border-[#5ee89a]/30"
+                              : isNegativeBad
+                              ? "bg-[#f26464]/10 text-[#f26464] border-[#f26464]/30"
+                              : "bg-[#262c3b]/40 text-[#8b9099] border-[#262c3b]"
+                          }`}
+                        >
+                          {formatDelta(diff, m.decimals ?? 1)}
+                          {m.suffix || ""}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Dual Progress Bars */}
+                    <div className="grid grid-cols-2 gap-2 items-center">
+                      <div className="w-full bg-[#161a23] h-2 rounded-full overflow-hidden flex justify-end">
+                        <div
+                          className="bg-[#4d84e2] h-full rounded-full transition-all duration-300"
+                          style={{ width: `${anbaPct}%` }}
+                        />
+                      </div>
+                      <div className="w-full bg-[#161a23] h-2 rounded-full overflow-hidden">
+                        <div
+                          className="bg-[#c9a84c] h-full rounded-full transition-all duration-300"
+                          style={{ width: `${nbaPct}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
 
-        {/* Right: Pace & Space Map of 30 ANBA Franchises */}
-        <div className="lg:col-span-5 rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/60 p-5 shadow-sm flex flex-col justify-between">
+        {/* Right 5 cols: Interactive 30-Team Tactical Map */}
+        <div className="lg:col-span-5 rounded-xl border border-[#262c3b] bg-[#161a23] p-5 shadow-lg flex flex-col justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Compass className="w-4 h-4 text-cyan-500" />
-              Mapa «Pace & Space» de Mánagers ANBA
-            </h3>
-            <p className="text-xs text-zinc-500 mt-1">
-              Eje X: Volumen de Triple (`3PAr%`) · Eje Y: Eficiencia (`TS%`). Haz clic en una franquicia para seleccionarla.
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[#262c3b]">
+              <div>
+                <h3 className="text-sm font-bold text-[#eceef2] flex items-center gap-2">
+                  <Compass className="w-4 h-4 text-[#4d84e2]" />
+                  Mapa Táctico de las 30 Franquicias ANBA
+                </h3>
+                <p className="text-[11px] text-[#8b9099] mt-0.5">
+                  Haz clic en cualquier burbuja para inspeccionar esa franquicia.
+                </p>
+              </div>
+
+              <div className="inline-flex rounded-lg border border-[#262c3b] bg-[#0f1219] p-0.5 self-start">
+                <button
+                  onClick={() => setScatterMode("efficiency")}
+                  className={`px-2.5 py-1 rounded text-[11px] font-bold transition ${
+                    scatterMode === "efficiency"
+                      ? "bg-[#4d84e2] text-white"
+                      : "text-[#8b9099] hover:text-[#eceef2]"
+                  }`}
+                >
+                  ORtg vs DRtg
+                </button>
+                <button
+                  onClick={() => setScatterMode("pacespace")}
+                  className={`px-2.5 py-1 rounded text-[11px] font-bold transition ${
+                    scatterMode === "pacespace"
+                      ? "bg-[#4d84e2] text-white"
+                      : "text-[#8b9099] hover:text-[#eceef2]"
+                  }`}
+                >
+                  3PAr vs TS%
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 text-[11px] text-[#8b9099] flex items-center justify-between">
+              <span>
+                {scatterMode === "efficiency"
+                  ? "Eje X: Rating Ofensivo (ORtg) · Eje Y: Rating Defensivo (DRtg)"
+                  : "Eje X: Volumen Triple (3PAr%) · Eje Y: Eficiencia Tiro (TS%)"}
+              </span>
+              <span className="font-mono text-[#4d84e2] font-bold">
+                Seleccionado: {selectedTeam.abbr}
+              </span>
+            </div>
+
+            <div className="h-80 w-full mt-2">
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart
+                  margin={{ top: 15, right: 18, bottom: 24, left: -8 }}
+                >
+                  <XAxis
+                    type="number"
+                    dataKey="x"
+                    name={scatterMode === "efficiency" ? "ORtg" : "3PAr%"}
+                    domain={["dataMin - 1.5", "dataMax + 1.5"]}
+                    tick={{
+                      fill: "#8b9099",
+                      fontSize: 11,
+                      fontFamily: "monospace",
+                    }}
+                    axisLine={{ stroke: "#262c3b" }}
+                  />
+                  <YAxis
+                    type="number"
+                    dataKey="y"
+                    name={scatterMode === "efficiency" ? "DRtg" : "TS%"}
+                    domain={["dataMin - 1.5", "dataMax + 1.5"]}
+                    reversed={scatterMode === "efficiency"}
+                    tick={{
+                      fill: "#8b9099",
+                      fontSize: 11,
+                      fontFamily: "monospace",
+                    }}
+                    axisLine={{ stroke: "#262c3b" }}
+                  />
+                  <ZAxis type="number" dataKey="wPct" range={[65, 190]} />
+                  {scatterMode === "efficiency" && (
+                    <>
+                      <ReferenceLine
+                        x={leagueAverages.anba.ortg ?? 114}
+                        stroke="#262c3b"
+                        strokeDasharray="3 3"
+                      />
+                      <ReferenceLine
+                        y={leagueAverages.anba.ortg ?? 114}
+                        stroke="#262c3b"
+                        strokeDasharray="3 3"
+                      />
+                    </>
+                  )}
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload || !payload.length) return null;
+                      const t = payload[0].payload;
+                      return (
+                        <div className="rounded-lg border border-[#262c3b] bg-[#0f1219] p-3 text-xs text-[#eceef2] shadow-2xl">
+                          <div className="font-bold text-sm flex items-center justify-between gap-3">
+                            <span>
+                              {t.abbr} — {t.name}
+                            </span>
+                            <span className="font-mono text-[#4d84e2]">
+                              {t.record}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-[#8b9099] mt-0.5">
+                            Mánager: {t.managerName} · NBA: {t.nbaRecord}
+                          </div>
+                          <div className="font-mono mt-2 pt-2 border-t border-[#262c3b] space-y-1 text-[11px]">
+                            {scatterMode === "efficiency" ? (
+                              <>
+                                <div>
+                                  ORtg ANBA:{" "}
+                                  <strong className="text-[#4d84e2]">
+                                    {t.x.toFixed(1)}
+                                  </strong>
+                                </div>
+                                <div>
+                                  DRtg ANBA:{" "}
+                                  <strong className="text-[#c9a84c]">
+                                    {t.y.toFixed(1)}
+                                  </strong>
+                                </div>
+                                <div>
+                                  Net Rating:{" "}
+                                  <strong className="text-[#5ee89a]">
+                                    {t.nrtg > 0 ? `+${t.nrtg}` : t.nrtg}
+                                  </strong>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div>
+                                  Volumen Triple (3PAr):{" "}
+                                  <strong className="text-[#4d84e2]">
+                                    {t.x.toFixed(1)}%
+                                  </strong>
+                                </div>
+                                <div>
+                                  True Shooting (TS%):{" "}
+                                  <strong className="text-[#5ee89a]">
+                                    {t.y.toFixed(1)}%
+                                  </strong>
+                                </div>
+                                <div>Puntos/p: {t.pts.toFixed(1)}</div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Scatter
+                    data={scatterData}
+                    onClick={(d: any) => {
+                      if (d && d.abbr) setSelectedTeamAbbr(d.abbr);
+                    }}
+                    className="cursor-pointer"
+                  >
+                    {scatterData.map((entry, idx) => {
+                      const isSel = entry.abbr === selectedTeam.abbr;
+                      return (
+                        <Cell
+                          key={idx}
+                          fill={isSel ? "#c9a84c" : "#4d84e2"}
+                          fillOpacity={isSel ? 1 : 0.75}
+                          stroke={isSel ? "#ffffff" : "#161a23"}
+                          strokeWidth={isSel ? 2.5 : 1}
+                        />
+                      );
+                    })}
+                  </Scatter>
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
-          <div className="h-72 w-full mt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 10, right: 16, bottom: 20, left: -10 }}>
-                <XAxis
-                  type="number"
-                  dataKey="fg3aRate"
-                  name="Tasa de Triples (3PAr%)"
-                  domain={["dataMin - 2", "dataMax + 2"]}
-                  tick={{ fill: "#a1a1aa", fontSize: 11, fontFamily: "monospace" }}
-                  axisLine={{ stroke: "#3f3f46" }}
-                  label={{
-                    value: "Frecuencia de Triple 3PAr (%)",
-                    position: "bottom",
-                    offset: 4,
-                    fill: "#71717a",
-                    fontSize: 11,
-                  }}
-                />
-                <YAxis
-                  type="number"
-                  dataKey="tsPct"
-                  name="Eficiencia TS%"
-                  domain={["dataMin - 1.5", "dataMax + 1.5"]}
-                  tick={{ fill: "#a1a1aa", fontSize: 11, fontFamily: "monospace" }}
-                  axisLine={{ stroke: "#3f3f46" }}
-                />
-                <ZAxis type="number" dataKey="wPct" range={[55, 160]} />
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (!active || !payload || !payload.length) return null;
-                    const t = payload[0].payload;
-                    return (
-                      <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-100 shadow-xl">
-                        <div className="font-bold">
-                          {t.abbr} — {t.name}
-                        </div>
-                        <div className="font-mono mt-1 space-y-0.5">
-                          <div className="text-emerald-400">
-                            Victorias ANBA: {t.wPct}%
-                          </div>
-                          <div>Volumen Triple (3PAr): {t.fg3aRate}%</div>
-                          <div>True Shooting (TS%): {t.tsPct}%</div>
-                          <div>Puntos/p: {t.pts}</div>
-                        </div>
-                      </div>
-                    );
-                  }}
-                />
-                <Scatter
-                  data={paceSpaceData}
-                  onClick={(d: any) => {
-                    if (d && d.abbr) setSelectedTeamAbbr(d.abbr);
-                  }}
-                  className="cursor-pointer"
-                >
-                  {paceSpaceData.map((entry, idx) => (
-                    <Cell
-                      key={idx}
-                      fill={
-                        entry.abbr === selectedTeam.abbr ? "#10b981" : "#06b6d4"
-                      }
-                      stroke={
-                        entry.abbr === selectedTeam.abbr ? "#ffffff" : "none"
-                      }
-                      strokeWidth={2}
-                    />
-                  ))}
-                </Scatter>
-              </ScatterChart>
-            </ResponsiveContainer>
+          {/* Tactical Summary Box of Selected Team */}
+          <div className="mt-4 rounded-lg border border-[#262c3b] bg-[#0f1219] p-3.5 text-xs">
+            <div className="font-bold text-[#eceef2] flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Activity className="w-3.5 h-3.5 text-[#4d84e2]" />
+                Diagnóstico Táctico: {selectedTeam.name}
+              </span>
+              <span className="font-mono text-[11px] text-[#c9a84c]">
+                Dif. Victorias:{" "}
+                {formatDelta(selectedTeam.anba.wPct - selectedTeam.nba.wPct, 1)}%
+              </span>
+            </div>
+            <p className="text-[#8b9099] text-[11px] mt-1.5 leading-relaxed">
+              En ANBA 2K, <strong className="text-[#eceef2]">{selectedTeam.name}</strong>{" "}
+              promedia <strong className="text-[#4d84e2]">{selectedTeam.anba.pts.toFixed(1)} PTS</strong>{" "}
+              (ORtg {selectedTeam.anba.ortg.toFixed(1)} · DRtg {selectedTeam.anba.drtg.toFixed(1)}) frente a los{" "}
+              <strong className="text-[#c9a84c]">{selectedTeam.nba.pts.toFixed(1)} PTS</strong>{" "}
+              (ORtg {selectedTeam.nba.ortg.toFixed(1)} · DRtg {selectedTeam.nba.drtg.toFixed(1)}) de su homólogo en la NBA real.
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Selected Franchise Roster Table */}
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/60 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+      {/* 4. Plantilla en ANBA de la Franquicia Seleccionada */}
+      <div className="rounded-xl border border-[#262c3b] bg-[#161a23] shadow-lg overflow-hidden">
+        <div className="px-5 py-4 border-b border-[#262c3b] flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Users className="w-4 h-4 text-emerald-500" />
-              Plantilla en ANBA de {selectedTeam.name} ({teamRoster.length} jugadores registrados)
+            <h3 className="text-sm sm:text-base font-bold text-[#eceef2] flex items-center gap-2">
+              <Users className="w-4 h-4 text-[#4d84e2]" />
+              Plantilla en ANBA de {selectedTeam.name} ({teamRoster.length} jugadores)
             </h3>
-            <p className="text-xs text-zinc-500">
-              Rendimiento de cada jugador en {selectedTeam.abbr} (ANBA) comparado con su rendimiento real en la NBA.
+            <p className="text-xs text-[#8b9099]">
+              Haz clic en cualquier jugador para abrir su comparativa individual 1v1 (incluye jugadores que solo han debutado en ANBA).
             </p>
           </div>
+          <span className="text-[11px] font-mono text-[#8b9099]">
+            Ordenado por Minutos en {selectedTeam.abbr} (ANBA)
+          </span>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/60 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                <th className="py-2.5 px-4">Jugador</th>
-                <th className="py-2.5 px-2">Pos</th>
-                <th className="py-2.5 px-2">Equipo NBA</th>
-                <th className="py-2.5 px-3 text-right">MIN (A / N)</th>
-                <th className="py-2.5 px-3 text-right">PTS (A / N)</th>
-                <th className="py-2.5 px-3 text-right">REB (A / N)</th>
-                <th className="py-2.5 px-3 text-right">AST (A / N)</th>
-                <th className="py-2.5 px-3 text-right">TS% (A / N)</th>
-                <th className="py-2.5 px-3 text-right">Δ GmSc</th>
-                <th className="py-2.5 px-4 text-right">Fidelidad</th>
+              <tr className="border-b border-[#262c3b] bg-[#0f1219] text-[11px] font-bold uppercase tracking-wider text-[#8b9099]">
+                <th className="py-3 px-4">Jugador</th>
+                <th className="py-3 px-2">Pos</th>
+                <th className="py-3 px-2">Equipo NBA</th>
+                <th className="py-3 px-3 text-right">PJ (A / N)</th>
+                <th className="py-3 px-3 text-right">MIN (A / N)</th>
+                <th className="py-3 px-3 text-right">PTS (A / N)</th>
+                <th className="py-3 px-3 text-right">REB (A / N)</th>
+                <th className="py-3 px-3 text-right">AST (A / N)</th>
+                <th className="py-3 px-3 text-right">USG% (A / N)</th>
+                <th className="py-3 px-3 text-right">TS% (A / N)</th>
+                <th className="py-3 px-4 text-right">PER (A / N)</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-200/70 dark:divide-zinc-800/60 text-xs font-mono tabular-nums">
-              {teamRoster.map((p) => (
-                <tr
-                  key={p.id}
-                  onClick={() => onInspectPlayer(p.id)}
-                  className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40 cursor-pointer transition"
-                >
-                  <td className="py-2.5 px-4 font-sans font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                    {p.name}
-                    <ExternalLink className="w-3 h-3 text-zinc-400 opacity-60" />
-                  </td>
-                  <td className="py-2.5 px-2 text-zinc-500">{p.pos}</td>
-                  <td className="py-2.5 px-2 text-orange-500 font-semibold">
-                    {p.nbaTeam}
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                      {p.anba.mp.toFixed(1)}
-                    </span>{" "}
-                    / <span className="text-zinc-500">{p.nba.mp.toFixed(1)}</span>
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                      {p.anba.pts.toFixed(1)}
-                    </span>{" "}
-                    / <span className="text-zinc-500">{p.nba.pts.toFixed(1)}</span>
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                      {p.anba.trb.toFixed(1)}
-                    </span>{" "}
-                    / <span className="text-zinc-500">{p.nba.trb.toFixed(1)}</span>
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                      {p.anba.ast.toFixed(1)}
-                    </span>{" "}
-                    / <span className="text-zinc-500">{p.nba.ast.toFixed(1)}</span>
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                      {p.anba.tsPct.toFixed(1)}%
-                    </span>{" "}
-                    / <span className="text-zinc-500">{p.nba.tsPct.toFixed(1)}%</span>
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <span
-                      className={`px-1.5 py-0.5 rounded border font-semibold ${getDeltaColorClass(
-                        p.deltas.gameScore
-                      )}`}
-                    >
-                      {formatDelta(p.deltas.gameScore, 2)}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-4 text-right">
-                    <span
-                      className={`px-2 py-0.5 rounded border font-semibold ${getSimilarityBadgeColor(
-                        p.similarityScore
-                      )}`}
-                    >
-                      {p.similarityScore.toFixed(1)}%
-                    </span>
-                  </td>
-                </tr>
-              ))}
+            <tbody className="divide-y divide-[#262c3b]/60 text-xs font-mono tabular-nums">
+              {teamRoster.map((p) => {
+                const isAnbaOnly = p.leagueStatus === "anba_only";
+                return (
+                  <tr
+                    key={p.id}
+                    onClick={() => onInspectPlayer(p.id)}
+                    className="hover:bg-[#16233a]/40 cursor-pointer transition"
+                  >
+                    <td className="py-2.5 px-4 font-sans font-semibold text-[#eceef2] flex items-center gap-2">
+                      <span>{p.name}</span>
+                      {isAnbaOnly && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-[#4d84e2]/20 text-[#4d84e2] border border-[#4d84e2]/30">
+                          Solo ANBA
+                        </span>
+                      )}
+                      <ExternalLink className="w-3 h-3 text-[#8b9099] opacity-60" />
+                    </td>
+                    <td className="py-2.5 px-2 text-[#8b9099]">{p.pos}</td>
+                    <td className="py-2.5 px-2 text-[#c9a84c] font-bold">
+                      {isAnbaOnly ? "—" : p.nbaTeam}
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <span className="text-[#4d84e2] font-bold">{p.anba.g}</span>{" "}
+                      /{" "}
+                      <span className="text-[#8b9099]">
+                        {isAnbaOnly ? "—" : p.nba.g}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <span className="text-[#4d84e2] font-bold">
+                        {p.anba.mp.toFixed(1)}
+                      </span>{" "}
+                      /{" "}
+                      <span className="text-[#c9a84c]">
+                        {isAnbaOnly ? "—" : p.nba.mp.toFixed(1)}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <span className="text-[#4d84e2] font-bold">
+                        {p.anba.pts.toFixed(1)}
+                      </span>{" "}
+                      /{" "}
+                      <span className="text-[#c9a84c]">
+                        {isAnbaOnly ? "—" : p.nba.pts.toFixed(1)}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <span className="text-[#4d84e2] font-bold">
+                        {p.anba.trb.toFixed(1)}
+                      </span>{" "}
+                      /{" "}
+                      <span className="text-[#c9a84c]">
+                        {isAnbaOnly ? "—" : p.nba.trb.toFixed(1)}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <span className="text-[#4d84e2] font-bold">
+                        {p.anba.ast.toFixed(1)}
+                      </span>{" "}
+                      /{" "}
+                      <span className="text-[#c9a84c]">
+                        {isAnbaOnly ? "—" : p.nba.ast.toFixed(1)}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <span className="text-[#4d84e2] font-bold">
+                        {p.anba.usgPct.toFixed(1)}%
+                      </span>{" "}
+                      /{" "}
+                      <span className="text-[#c9a84c]">
+                        {isAnbaOnly ? "—" : `${p.nba.usgPct.toFixed(1)}%`}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <span className="text-[#4d84e2] font-bold">
+                        {p.anba.tsPct.toFixed(1)}%
+                      </span>{" "}
+                      /{" "}
+                      <span className="text-[#c9a84c]">
+                        {isAnbaOnly ? "—" : `${p.nba.tsPct.toFixed(1)}%`}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-4 text-right">
+                      <span className="text-[#4d84e2] font-bold">
+                        {p.anba.per.toFixed(1)}
+                      </span>{" "}
+                      /{" "}
+                      <span className="text-[#c9a84c]">
+                        {isAnbaOnly ? "—" : p.nba.per.toFixed(1)}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* All 30 Franchises Comparison Table */}
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-900/60 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      {/* 5. Tabla Clasificatoria Comparativa de las 30 Franquicias */}
+      <div className="rounded-xl border border-[#262c3b] bg-[#161a23] shadow-lg overflow-hidden">
+        <div className="px-5 py-4 border-b border-[#262c3b] flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-cyan-500" />
-              Clasificación Comparativa de las 30 Franquicias (ANBA vs NBA)
+            <h3 className="text-sm sm:text-base font-bold text-[#eceef2] flex items-center gap-2">
+              <Trophy className="w-4 h-4 text-[#c9a84c]" />
+              Clasificación Comparativa de las 30 Franquicias (ANBA 2K vs NBA Real)
             </h3>
+            <p className="text-xs text-[#8b9099]">
+              Comparativa directa de récords, promedios por partido y métricas avanzadas (ORtg, DRtg, Net Rating, Pace, Four Factors).
+            </p>
           </div>
-          <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-950 p-0.5">
-            {(["ALL", "East", "West"] as const).map((c) => (
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Table Mode Toggle */}
+            <div className="inline-flex rounded-lg border border-[#262c3b] bg-[#0f1219] p-0.5">
               <button
-                key={c}
-                onClick={() => setConfFilter(c)}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition ${
-                  confFilter === c
-                    ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-sm"
-                    : "text-zinc-500"
+                onClick={() => setTableMode("per_game")}
+                className={`px-3 py-1 text-xs font-bold rounded-md transition ${
+                  tableMode === "per_game"
+                    ? "bg-[#4d84e2] text-white"
+                    : "text-[#8b9099] hover:text-[#eceef2]"
                 }`}
               >
-                {c === "ALL" ? "Toda la Liga" : c === "East" ? "Este" : "Oeste"}
+                Por Partido
               </button>
-            ))}
+              <button
+                onClick={() => setTableMode("advanced")}
+                className={`px-3 py-1 text-xs font-bold rounded-md transition ${
+                  tableMode === "advanced"
+                    ? "bg-[#4d84e2] text-white"
+                    : "text-[#8b9099] hover:text-[#eceef2]"
+                }`}
+              >
+                Avanzadas
+              </button>
+            </div>
+
+            {/* Conference Filter */}
+            <div className="inline-flex rounded-lg border border-[#262c3b] bg-[#0f1219] p-0.5">
+              {(["ALL", "East", "West"] as const).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setConfFilter(c)}
+                  className={`px-3 py-1 text-xs font-bold rounded-md transition ${
+                    confFilter === c
+                      ? "bg-[#262c3b] text-[#eceef2]"
+                      : "text-[#8b9099] hover:text-[#eceef2]"
+                  }`}
+                >
+                  {c === "ALL" ? "Toda la Liga" : c === "East" ? "Este" : "Oeste"}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/60 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                <th className="py-3 px-4">Franquicia</th>
-                <th className="py-3 px-2 text-right">Récord ANBA</th>
-                <th className="py-3 px-3 text-right">PTS (ANBA / NBA)</th>
-                <th className="py-3 px-3 text-right">FG% (ANBA / NBA)</th>
-                <th className="py-3 px-3 text-right">3P% (ANBA / NBA)</th>
-                <th className="py-3 px-3 text-right">3PAr% (A / N)</th>
-                <th className="py-3 px-3 text-right">REB (A / N)</th>
-                <th className="py-3 px-3 text-right">AST (A / N)</th>
-                <th className="py-3 px-3 text-right">Zona / Banq</th>
-                <th className="py-3 px-4 text-right">Fidelidad Roster</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200/70 dark:divide-zinc-800/60 text-xs font-mono tabular-nums">
-              {filteredTeams.map((t, i) => (
-                <tr
-                  key={t.abbr}
-                  onClick={() => setSelectedTeamAbbr(t.abbr)}
-                  className={`hover:bg-zinc-50 dark:hover:bg-zinc-800/40 cursor-pointer transition ${
-                    t.abbr === selectedTeam.abbr ? "bg-emerald-500/5" : ""
-                  }`}
-                >
-                  <td className="py-2.5 px-4 font-sans">
-                    <div className="flex items-center gap-2.5">
-                      <span className="font-mono text-xs text-zinc-400 w-4">
-                        {i + 1}
-                      </span>
-                      <span
-                        className="w-2.5 h-2.5 rounded-full"
-                        style={{ backgroundColor: t.color }}
-                      />
-                      <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                        {t.name}
-                      </span>
-                      <span className="font-mono text-[10px] text-zinc-400">
-                        {t.abbr}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="py-2.5 px-2 text-right font-bold text-zinc-900 dark:text-zinc-100">
-                    {t.anba.w}-{t.anba.l} ({t.anba.wPct}%)
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                      {t.anba.pts}
-                    </span>{" "}
-                    / <span className="text-orange-500">{t.nba.pts}</span>
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                      {t.anba.fgPct}%
-                    </span>{" "}
-                    / <span className="text-zinc-500">{t.nba.fgPct}%</span>
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                      {t.anba.fg3Pct}%
-                    </span>{" "}
-                    / <span className="text-zinc-500">{t.nba.fg3Pct}%</span>
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    <span className="text-cyan-600 dark:text-cyan-400 font-semibold">
-                      {t.anba.fg3aRate}%
-                    </span>{" "}
-                    / <span className="text-zinc-500">{t.nba.fg3aRate}%</span>
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    {t.anba.trb} / <span className="text-zinc-500">{t.nba.trb}</span>
-                  </td>
-                  <td className="py-2.5 px-3 text-right">
-                    {t.anba.ast} / <span className="text-zinc-500">{t.nba.ast}</span>
-                  </td>
-                  <td className="py-2.5 px-3 text-right text-zinc-500">
-                    {t.anba.paintPts} / {t.anba.benchPts}
-                  </td>
-                  <td className="py-2.5 px-4 text-right">
-                    <span
-                      className={`px-2 py-0.5 rounded border font-semibold ${getSimilarityBadgeColor(
-                        t.rosterSimilarity
-                      )}`}
-                    >
-                      {t.rosterSimilarity.toFixed(1)}%
-                    </span>
-                  </td>
+              {tableMode === "per_game" ? (
+                <tr className="border-b border-[#262c3b] bg-[#0f1219] text-[11px] font-bold uppercase tracking-wider text-[#8b9099]">
+                  <th className="py-3 px-4">Franquicia / Mánager</th>
+                  <th className="py-3 px-2 text-right">Récord ANBA</th>
+                  <th className="py-3 px-2 text-right">Récord NBA</th>
+                  <th className="py-3 px-3 text-right">PTS (A / N)</th>
+                  <th className="py-3 px-3 text-right">FG% (A / N)</th>
+                  <th className="py-3 px-3 text-right">3P% (A / N)</th>
+                  <th className="py-3 px-3 text-right">REB (A / N)</th>
+                  <th className="py-3 px-3 text-right">AST (A / N)</th>
+                  <th className="py-3 px-3 text-right">TOV (A / N)</th>
+                  <th className="py-3 px-4 text-right">Similitud</th>
                 </tr>
-              ))}
+              ) : (
+                <tr className="border-b border-[#262c3b] bg-[#0f1219] text-[11px] font-bold uppercase tracking-wider text-[#8b9099]">
+                  <th className="py-3 px-4">Franquicia / Mánager</th>
+                  <th className="py-3 px-2 text-right">Net Rtg (A / N)</th>
+                  <th className="py-3 px-3 text-right">ORtg (A / N)</th>
+                  <th className="py-3 px-3 text-right">DRtg (A / N)</th>
+                  <th className="py-3 px-3 text-right">Pace (A / N)</th>
+                  <th className="py-3 px-3 text-right">TS% (A / N)</th>
+                  <th className="py-3 px-3 text-right">3PAr% (A / N)</th>
+                  <th className="py-3 px-3 text-right">Off eFG% (A / N)</th>
+                  <th className="py-3 px-4 text-right">Def eFG% (A / N)</th>
+                </tr>
+              )}
+            </thead>
+            <tbody className="divide-y divide-[#262c3b]/60 text-xs font-mono tabular-nums">
+              {filteredTeams.map((t, i) => {
+                const isSelected = t.abbr === selectedTeam.abbr;
+                return (
+                  <tr
+                    key={t.abbr}
+                    onClick={() => setSelectedTeamAbbr(t.abbr)}
+                    className={`hover:bg-[#16233a]/40 cursor-pointer transition ${
+                      isSelected ? "bg-[#16233a]/60" : ""
+                    }`}
+                  >
+                    <td className="py-2.5 px-4 font-sans">
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-mono text-xs text-[#8b9099] w-5">
+                          {i + 1}
+                        </span>
+                        {t.logoUrl ? (
+                          <img
+                            src={t.logoUrl}
+                            alt={t.abbr}
+                            className="w-5 h-5 object-contain shrink-0"
+                          />
+                        ) : (
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{ backgroundColor: t.color }}
+                          />
+                        )}
+                        <div>
+                          <div className="font-bold text-[#eceef2] flex items-center gap-1.5">
+                            <span>{t.name}</span>
+                            <span className="font-mono text-[10px] text-[#8b9099]">
+                              {t.abbr}
+                            </span>
+                          </div>
+                          {t.managerName && (
+                            <div className="text-[10px] text-[#8b9099]">
+                              Mánager: {t.managerName}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+
+                    {tableMode === "per_game" ? (
+                      <>
+                        <td className="py-2.5 px-2 text-right font-bold text-[#4d84e2]">
+                          {t.anba.w}-{t.anba.l}{" "}
+                          <span className="text-[10px] font-normal text-[#8b9099]">
+                            ({t.anba.wPct.toFixed(0)}%)
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-bold text-[#c9a84c]">
+                          {t.nba.w}-{t.nba.l}{" "}
+                          <span className="text-[10px] font-normal text-[#8b9099]">
+                            ({t.nba.wPct.toFixed(0)}%)
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.pts.toFixed(1)}
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#c9a84c]">
+                            {t.nba.pts.toFixed(1)}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.fgPct.toFixed(1)}%
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#8b9099]">
+                            {t.nba.fgPct.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.fg3Pct.toFixed(1)}%
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#8b9099]">
+                            {t.nba.fg3Pct.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.trb.toFixed(1)}
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#8b9099]">
+                            {t.nba.trb.toFixed(1)}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.ast.toFixed(1)}
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#8b9099]">
+                            {t.nba.ast.toFixed(1)}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.tov.toFixed(1)}
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#8b9099]">
+                            {t.nba.tov.toFixed(1)}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-4 text-right">
+                          <span className="px-2 py-0.5 rounded border border-[#5ee89a]/30 bg-[#5ee89a]/10 text-[#5ee89a] font-bold">
+                            {t.rosterSimilarity.toFixed(1)}%
+                          </span>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="py-2.5 px-2 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.nrtg > 0
+                              ? `+${t.anba.nrtg.toFixed(1)}`
+                              : t.anba.nrtg.toFixed(1)}
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#c9a84c]">
+                            {t.nba.nrtg > 0
+                              ? `+${t.nba.nrtg.toFixed(1)}`
+                              : t.nba.nrtg.toFixed(1)}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.ortg.toFixed(1)}
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#c9a84c]">
+                            {t.nba.ortg.toFixed(1)}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.drtg.toFixed(1)}
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#c9a84c]">
+                            {t.nba.drtg.toFixed(1)}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.pace.toFixed(1)}
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#8b9099]">
+                            {t.nba.pace.toFixed(1)}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.tsPct.toFixed(1)}%
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#8b9099]">
+                            {t.nba.tsPct.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.threePar.toFixed(1)}%
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#8b9099]">
+                            {t.nba.threePar.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.offEfgPct.toFixed(1)}%
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#8b9099]">
+                            {t.nba.offEfgPct.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-4 text-right">
+                          <span className="text-[#4d84e2] font-bold">
+                            {t.anba.defEfgPct.toFixed(1)}%
+                          </span>{" "}
+                          /{" "}
+                          <span className="text-[#8b9099]">
+                            {t.nba.defEfgPct.toFixed(1)}%
+                          </span>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

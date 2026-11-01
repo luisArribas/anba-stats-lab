@@ -10,7 +10,7 @@ import StatisticalClones from "@/components/StatisticalClones";
 import {
   Swords,
   Cpu,
-  ShieldAlert,
+  Building2,
   Sparkles,
   Calendar,
   Clock,
@@ -20,9 +20,9 @@ import {
 const dataset = rawDataset as unknown as FullDatasetPayload;
 const AVAILABLE_SEASONS = Object.keys(dataset.seasons);
 
-type ModuleTab = "comparator" | "anomalies" | "franchises" | "clones";
+type ModuleTab = "comparator" | "franchises" | "anomalies" | "clones";
 
-// Flag para activar más adelante los módulos 1, 3 y 5 si lo deseas
+// Flag para activar más adelante los módulos 1 (Auditoría 2K) y 3 (Clones Estadísticos)
 const ENABLE_EXTRA_MODULES = false;
 
 export default function HomePage() {
@@ -43,18 +43,29 @@ export default function HomePage() {
       ? selectedPlayerId
       : currentSeasonData.players[0]?.id || "";
 
-  const tabs: {
+  const allTabs: {
     id: ModuleTab;
     label: string;
     subtitle: string;
     icon: React.ReactNode;
     badge?: string;
+    enabled: boolean;
   }[] = [
     {
       id: "comparator",
-      label: "Comparador 1v1",
-      subtitle: "ANBA vs Realidad NBA",
+      label: "Comparador Jugadores 1v1",
+      subtitle: "ANBA 2K vs Realidad NBA",
       icon: <Swords className="w-4 h-4" />,
+      badge: `${currentSeasonData.players.length}`,
+      enabled: true,
+    },
+    {
+      id: "franchises",
+      label: "Índice de Franquicias",
+      subtitle: "Fidelidad Táctica Equipos",
+      icon: <Building2 className="w-4 h-4" />,
+      badge: `${currentSeasonData.teams.length} Equipos`,
+      enabled: true,
     },
     {
       id: "anomalies",
@@ -62,13 +73,7 @@ export default function HomePage() {
       subtitle: "Rotos e Infravalorados",
       icon: <Cpu className="w-4 h-4" />,
       badge: `${currentSeasonData.players.filter((p) => Math.abs(p.deltas.pts) >= 4).length}`,
-    },
-    {
-      id: "franchises",
-      label: "Índice Franquicias",
-      subtitle: "Fidelidad Táctica",
-      icon: <ShieldAlert className="w-4 h-4" />,
-      badge: `${currentSeasonData.teams.length}`,
+      enabled: ENABLE_EXTRA_MODULES,
     },
     {
       id: "clones",
@@ -76,8 +81,11 @@ export default function HomePage() {
       subtitle: "¿Como quién rinde?",
       icon: <Sparkles className="w-4 h-4" />,
       badge: "Cosine AI",
+      enabled: ENABLE_EXTRA_MODULES,
     },
   ];
+
+  const visibleTabs = allTabs.filter((t) => t.enabled);
 
   const formattedLastSync = (() => {
     try {
@@ -193,62 +201,60 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Navigation Tabs (Solo visibles si ENABLE_EXTRA_MODULES = true) */}
-          {ENABLE_EXTRA_MODULES && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-3 pt-1 no-scrollbar">
-              {tabs.map((tab) => {
-                const isActive = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`group flex items-center gap-2.5 px-4 py-2 rounded-lg text-left transition-colors shrink-0 border ${
+          {/* Navigation Tabs */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-3 pt-1 no-scrollbar">
+            {visibleTabs.map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`group flex items-center gap-2.5 px-4 py-2 rounded-lg text-left transition-colors shrink-0 border ${
+                    isActive
+                      ? "bg-[#16233a] border-[#4d84e2]/50 text-[#eceef2] shadow-sm"
+                      : "bg-[#161a23]/60 border-[#262c3b]/60 text-[#8b9099] hover:text-[#eceef2] hover:bg-[#161a23]"
+                  }`}
+                >
+                  <div
+                    className={`p-1.5 rounded-md ${
                       isActive
-                        ? "bg-[#16233a] border-[#4d84e2]/40 text-[#eceef2]"
-                        : "bg-[#161a23]/60 border-transparent text-[#8b9099] hover:text-[#eceef2] hover:bg-[#161a23]"
+                        ? "bg-[#4d84e2]/20 text-[#4d84e2]"
+                        : "bg-[#0f1219] text-[#8b9099]"
                     }`}
                   >
-                    <div
-                      className={`p-1.5 rounded-md ${
-                        isActive
-                          ? "bg-[#4d84e2]/20 text-[#4d84e2]"
-                          : "bg-[#0f1219] text-[#8b9099]"
-                      }`}
-                    >
-                      {tab.icon}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold tracking-tight">
-                          {tab.label}
+                    {tab.icon}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold tracking-tight">
+                        {tab.label}
+                      </span>
+                      {tab.badge && (
+                        <span
+                          className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-semibold ${
+                            isActive
+                              ? "bg-[#4d84e2]/20 text-[#7ab3ff]"
+                              : "bg-[#0f1219] text-[#8b9099]"
+                          }`}
+                        >
+                          {tab.badge}
                         </span>
-                        {tab.badge && (
-                          <span
-                            className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-semibold ${
-                              isActive
-                                ? "bg-[#4d84e2]/20 text-[#7ab3ff]"
-                                : "bg-[#0f1219] text-[#8b9099]"
-                            }`}
-                          >
-                            {tab.badge}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[10px] text-[#8b9099] hidden sm:block">
-                        {tab.subtitle}
-                      </p>
+                      )}
                     </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                    <p className="text-[10px] text-[#8b9099] hidden sm:block">
+                      {tab.subtitle}
+                    </p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </header>
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8">
-        {(!ENABLE_EXTRA_MODULES || activeTab === "comparator") && (
+        {activeTab === "comparator" && (
           <PlayerComparator
             players={currentSeasonData.players}
             season={selectedSeason}
@@ -256,19 +262,19 @@ export default function HomePage() {
             onSelectPlayer={setSelectedPlayerId}
           />
         )}
+        {activeTab === "franchises" && (
+          <FranchiseRealism
+            teams={currentSeasonData.teams}
+            players={currentSeasonData.players}
+            leagueAverages={currentSeasonData.leagueAverages}
+            onInspectPlayer={handleInspectPlayer}
+          />
+        )}
         {ENABLE_EXTRA_MODULES && activeTab === "anomalies" && (
           <SimulatorAnomalies
             players={currentSeasonData.players}
             teams={currentSeasonData.teams}
             positionBreakdown={currentSeasonData.positionBreakdown}
-            onInspectPlayer={handleInspectPlayer}
-          />
-        )}
-        {ENABLE_EXTRA_MODULES && activeTab === "franchises" && (
-          <FranchiseRealism
-            teams={currentSeasonData.teams}
-            players={currentSeasonData.players}
-            leagueAverages={currentSeasonData.leagueAverages}
             onInspectPlayer={handleInspectPlayer}
           />
         )}
@@ -289,7 +295,8 @@ export default function HomePage() {
             <span className="w-2 h-2 rounded-full bg-[#5ee89a] shrink-0" />
             <span>
               <strong className="text-[#eceef2]">ANBA2K Stats Lab</strong> ·{" "}
-              {currentSeasonData.players.length} jugadores cruzados en{" "}
+              {currentSeasonData.players.length} jugadores y{" "}
+              {currentSeasonData.teams.length} franquicias cruzadas en{" "}
               <strong className="text-[#eceef2]">{selectedSeason}</strong>
             </span>
           </div>
